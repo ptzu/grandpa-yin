@@ -9,7 +9,7 @@ from features.menu_feature import MenuFeature
 from features.colorize_feature import ColorizeFeature
 from features.edit_feature import EditFeature
 from features.member_feature import MemberFeature
-from models.database import init_database, create_tables
+from models.database import init_database
 from services.member_service import MemberService
 
 # 全域變數
@@ -51,9 +51,8 @@ def init():
         print("🗄️  初始化資料庫連線...")
         try:
             init_database()
-            # 不自動建立表格，需要手動執行 scripts/init_db.py
+            # Schema is managed by Supabase migrations (altide-landing-page/supabase/migrations/)
             print("✅ 資料庫連線初始化完成")
-            print("ℹ️  如需建立表格，請執行: python scripts/init_db.py")
         except Exception as e:
             print(f"⚠️  資料庫初始化失敗: {str(e)}")
             print("ℹ️  會員功能將無法使用")

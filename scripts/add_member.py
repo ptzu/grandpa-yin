@@ -11,7 +11,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
-from models.database import init_database
 from services.member_service import MemberService
 
 def add_member():
@@ -24,12 +23,7 @@ def add_member():
     load_dotenv()
     
     try:
-        # 初始化資料庫
-        print("🔌 初始化資料庫連線...")
-        init_database()
-        print("✅ 資料庫連線成功")
-        
-        # 建立會員服務
+        # 建立會員服務（連線由 get_session() 首次呼叫時建立）
         member_service = MemberService()
         
         # 取得用戶輸入
@@ -106,53 +100,8 @@ def add_member():
         import traceback
         traceback.print_exc()
 
-def list_members():
-    """列出所有會員"""
-    print("=" * 50)
-    print("📋 會員列表")
-    print("=" * 50)
-    
-    try:
-        # 初始化資料庫
-        init_database()
-        
-        # 查詢所有會員
-        from models.database import get_session
-        from models.member import Member
-        
-        with get_session() as session:
-            members = session.query(Member).all()
-            
-            if not members:
-                print("📭 目前沒有任何會員")
-                return
-            
-            print(f"📊 共 {len(members)} 位會員：\n")
-            
-            for i, member in enumerate(members, 1):
-                print(f"{i}. {member.display_name}")
-                print(f"   ID: {member.user_id}")
-                print(f"   點數: {member.points}")
-                print(f"   狀態: {member.status}")
-                print(f"   建立時間: {member.created_at}")
-                print()
-
-    except Exception as e:
-        print(f"❌ 查詢失敗: {str(e)}")
-
 if __name__ == "__main__":
-    print("選擇操作：")
-    print("1. 新增會員")
-    print("2. 查看會員列表")
-    
-    choice = input("請選擇 (1/2): ").strip()
-    
-    if choice == "1":
-        add_member()
-    elif choice == "2":
-        list_members()
-    else:
-        print("❌ 無效的選擇")
+    add_member()
 
 
 

@@ -120,9 +120,10 @@ class ColorizeFeature(BaseFeature):
                     # 扣除點數（如果有 member_service）
                     if self.member_service:
                         success = self.member_service.deduct_points(
-                            user_id, 
-                            self.required_points, 
-                            "彩色化圖片"
+                            user_id,
+                            self.required_points,
+                            "彩色化圖片",
+                            feature_type='colorize',
                         )
                         if not success:
                             print(f"⚠️ 扣點失敗，但圖片已處理完成: {user_id}")

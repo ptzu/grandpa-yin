@@ -223,9 +223,10 @@ class EditFeature(BaseFeature):
                     # 扣除點數（如果有 member_service）
                     if self.member_service:
                         success = self.member_service.deduct_points(
-                            user_id, 
-                            self.required_points, 
-                            f"圖片編輯：{description[:20]}"
+                            user_id,
+                            self.required_points,
+                            f"圖片編輯：{description[:20]}",
+                            feature_type='edit',
                         )
                         if not success:
                             print(f"⚠️ 扣點失敗，但圖片已處理完成: {user_id}")

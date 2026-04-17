@@ -43,38 +43,6 @@ def init_database():
     return _engine
 
 
-def create_tables():
-    """建立所有資料表"""
-    if _engine is None:
-        raise RuntimeError("資料庫尚未初始化，請先呼叫 init_database()")
-    
-    print("📊 建立資料表...")
-    
-    # 添加重試機制
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            # 測試連線是否有效
-            with _engine.connect() as conn:
-                # 執行簡單查詢測試連線
-                from sqlalchemy import text
-                conn.execute(text("SELECT 1"))
-            
-            # 建立資料表
-            Base.metadata.create_all(_engine)
-            print("✅ 資料表建立完成")
-            return
-            
-        except Exception as e:
-            if attempt < max_retries - 1:
-                print(f"⚠️  建立資料表失敗，重試中... (嘗試 {attempt + 1}/{max_retries})")
-                import time
-                time.sleep(2)  # 等待 2 秒後重試
-            else:
-                print(f"❌ 建立資料表失敗，已重試 {max_retries} 次")
-                raise e
-
-
 @contextmanager
 def get_session():
     """取得資料庫 session（使用 context manager）"""
