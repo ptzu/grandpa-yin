@@ -73,6 +73,10 @@ class EditFeature(BaseFeature):
         
         return None
     
+    def can_handle_image(self, user_id: str) -> bool:
+        """在等待圖片狀態時才處理圖片"""
+        return self.is_user_in_state(user_id, "waiting_image")
+
     def handle_image(self, event: dict) -> dict:
         """處理圖片訊息"""
         user_id = self.get_user_id(event)

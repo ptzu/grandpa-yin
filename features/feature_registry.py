@@ -91,12 +91,12 @@ class FeatureRegistry:
                 print(f"根據用戶狀態路由圖片到功能: {feature_name}")
                 return feature.handle_image(event)
         
-        # 2. 如果沒有狀態，則尋找能處理圖片的功能
+        # 2. 如果沒有狀態，則尋找能處理圖片的功能（先判斷、再執行，避免重複執行）
         for feature in self.features:
-            if hasattr(feature, 'handle_image') and feature.handle_image(event) is not None:
+            if feature.can_handle_image(user_id):
                 print(f"路由圖片到功能: {feature.name}")
                 return feature.handle_image(event)
-        
+
         # 3. 沒有功能能處理此圖片
         print(f"沒有功能能處理圖片訊息")
         return None

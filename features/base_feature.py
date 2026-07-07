@@ -46,13 +46,25 @@ class BaseFeature(ABC):
         """
         pass
     
+    def can_handle_image(self, user_id: str) -> bool:
+        """
+        判斷是否能處理圖片訊息（預設不處理）
+
+        Args:
+            user_id: 用戶 ID
+
+        Returns:
+            bool: 是否能處理
+        """
+        return False
+
     def handle_image(self, event: dict) -> dict:
         """
         處理圖片訊息（預設不處理）
-        
+
         Args:
             event: LINE webhook event
-            
+
         Returns:
             dict: Flask 回應或 None
         """
