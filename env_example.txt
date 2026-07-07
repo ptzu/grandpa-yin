@@ -21,6 +21,11 @@ DATABASE_URL=postgresql://user:password@host:port/dbname
 # Example for Supabase:
 # DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-ID].supabase.co:5432/postgres
 
+# Supabase Storage（圖片編輯流程的圖片暫存；未設定時退回 base64 存資料庫 state）
+# SUPABASE_URL=https://[PROJECT-ID].supabase.co
+# SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+# SUPABASE_STORAGE_BUCKET=linebot-temp-images
+
 # Feature Point Costs 功能點數費用
 COLORIZE_COST=10
 EDIT_COST=5

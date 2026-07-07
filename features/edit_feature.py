@@ -16,8 +16,9 @@ class EditFeature(ReplicateImageFeature):
     image_waiting_state = "waiting_image"
     loading_seconds = 45  # 圖片編輯可能需要更長時間
 
-    def __init__(self, line_bot_api, publisher, state_manager, member_service=None):
+    def __init__(self, line_bot_api, publisher, state_manager, member_service=None, storage_service=None):
         super().__init__(line_bot_api, publisher, state_manager, member_service)
+        self.storage_service = storage_service
         self.required_points = int(os.getenv("EDIT_COST", "5"))
 
     @property
@@ -65,10 +66,17 @@ class EditFeature(ReplicateImageFeature):
         try:
             image_bytes = self.download_image(message_id)
 
-            # 設定狀態為等待編輯描述，同時保存圖片數據
-            self.set_user_state(user_id, "waiting_description", {
-                "image_data": base64.b64encode(image_bytes).decode('utf-8')
-            })
+            # 圖片暫存至 Supabase Storage，state 只存 object key，
+            # 避免整張圖 base64 塞進 JSONB 造成 row 膨脹、每次查 state 都搬整張圖
+            if self.storage_service and self.storage_service.is_configured():
+                image_key = self.storage_service.upload_image(image_bytes, prefix=self.name)
+                state_data = {"image_key": image_key}
+            else:
+                logger.warning("Supabase Storage 未設定，退回以 base64 暫存於 state（建議設定 SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY）")
+                state_data = {"image_data": base64.b64encode(image_bytes).decode('utf-8')}
+
+            # 設定狀態為等待編輯描述
+            self.set_user_state(user_id, "waiting_description", state_data)
 
             self.publisher.process_reply_message(
                 reply_token,
@@ -115,11 +123,13 @@ class EditFeature(ReplicateImageFeature):
         """處理編輯描述輸入：取出暫存圖片 → 背景計費處理"""
         user_name = self.get_user_name(user_id)
         try:
-            # 獲取暫存的圖片數據
+            # 獲取暫存的圖片（Storage key 或退回路徑的 base64）
             user_state = self.get_user_state(user_id)
-            image_data = user_state.get("data", {}).get("image_data") if user_state else None
+            state_data = (user_state or {}).get("data") or {}
+            image_key = state_data.get("image_key")
+            image_data = state_data.get("image_data")
 
-            if not image_data:
+            if not image_key and not image_data:
                 self.clear_user_state(user_id)
                 self.publisher.process_reply_message(
                     reply_token,
@@ -128,6 +138,16 @@ class EditFeature(ReplicateImageFeature):
                     event
                 )
                 return None
+
+            # 先取回圖片再回覆，取不回來時外層 except 還能用 reply_token 告知用戶
+            if image_key:
+                try:
+                    image_bytes = self.storage_service.download_image(image_key)
+                finally:
+                    # 用過即刪；下載失敗時物件也已無用，一併清掉
+                    self.storage_service.delete_image(image_key)
+            else:
+                image_bytes = base64.b64decode(image_data)
 
             # 設定狀態為正在處理（圖片已在記憶體中，不再重複存入 DB）
             self.set_user_state(user_id, "processing", {"description": description})
@@ -140,7 +160,6 @@ class EditFeature(ReplicateImageFeature):
             )
             self.start_loading_animation(user_id)
 
-            image_bytes = base64.b64decode(image_data)
             self.submit_billed_processing(
                 user_id,
                 event,

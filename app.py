@@ -16,6 +16,7 @@ from features.edit_feature import EditFeature
 from features.member_feature import MemberFeature
 from models.database import init_database
 from services.member_service import MemberService
+from services.storage_service import StorageService
 
 logger = get_logger("app")
 
@@ -98,11 +99,18 @@ def init():
     else:
         member_service = None
 
-    # 6. 註冊所有功能
+    # 6. 圖片暫存服務（Supabase Storage，未設定時 EditFeature 會退回 base64 存 state）
+    storage_service = StorageService()
+    if storage_service.is_configured():
+        logger.info(f"Supabase Storage 已設定 (bucket: {storage_service.bucket})")
+    else:
+        logger.warning("Supabase Storage 未設定，圖片編輯將以 base64 暫存於資料庫 state")
+
+    # 7. 註冊所有功能
     feature_registry = FeatureRegistry(user_state_manager)
     feature_registry.register(MenuFeature(line_bot_api, publisher, user_state_manager, member_service))
     feature_registry.register(ColorizeFeature(line_bot_api, publisher, user_state_manager, member_service))
-    feature_registry.register(EditFeature(line_bot_api, publisher, user_state_manager, member_service))
+    feature_registry.register(EditFeature(line_bot_api, publisher, user_state_manager, member_service, storage_service))
 
     # 註冊會員功能（如果會員服務可用）
     if member_service:
