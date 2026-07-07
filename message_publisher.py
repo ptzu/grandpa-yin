@@ -1,3 +1,5 @@
+import time
+import requests
 from linebot.exceptions import LineBotApiError
 
 
@@ -6,6 +8,35 @@ class MessagePublisher:
 
     def __init__(self, line_bot_api):
         self.line_bot_api = line_bot_api
+
+    def _send_with_retry(self, send_fn, description, max_attempts=3):
+        """
+        執行發送動作，對瞬斷（網路錯誤）與伺服器錯誤（5xx）做指數退避重試。
+        4xx 屬呼叫端錯誤（無效 token、目標不存在），不重試。
+
+        Returns:
+            bool: 是否發送成功
+        """
+        delay = 1
+        for attempt in range(1, max_attempts + 1):
+            try:
+                send_fn()
+                return True
+            except LineBotApiError as e:
+                status_code = getattr(e, 'status_code', None)
+                if status_code is not None and status_code < 500:
+                    print(f"❌ {description} 失敗 (status={status_code})，不重試: {str(e)}")
+                    return False
+                print(f"⚠️ {description} 失敗 (status={status_code})，第 {attempt}/{max_attempts} 次: {str(e)}")
+            except requests.exceptions.RequestException as e:
+                print(f"⚠️ {description} 網路錯誤，第 {attempt}/{max_attempts} 次: {str(e)}")
+
+            if attempt < max_attempts:
+                time.sleep(delay)
+                delay *= 2
+
+        print(f"❌ {description} 重試 {max_attempts} 次後仍失敗")
+        return False
 
     def _get_source_type(self, event):
         """
@@ -110,9 +141,9 @@ class MessagePublisher:
         else:
             target_id = user_id
 
-        try:
-            self.line_bot_api.push_message(target_id, messages)
-        except LineBotApiError as e:
-            status_code = getattr(e, 'status_code', None)
-            print(f"❌ 推送訊息失敗 (target={target_id}, status={status_code}): {str(e)}")
+        # 推送多在背景執行緒進行，可承受重試；reply token 為一次性故 reply 不重試
+        self._send_with_retry(
+            lambda: self.line_bot_api.push_message(target_id, messages),
+            f"推送訊息 (target={target_id})"
+        )
         return None

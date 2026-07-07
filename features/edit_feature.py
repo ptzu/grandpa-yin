@@ -2,7 +2,7 @@ import os
 import base64
 import requests
 import replicate
-import threading
+from task_executor import submit_image_task
 from .base_feature import BaseFeature, _UNSET
 from linebot.models import TextSendMessage, ImageSendMessage
 
@@ -276,9 +276,14 @@ class EditFeature(BaseFeature):
                     self.clear_user_state(user_id)
                     print(f"用戶 {user_id} 圖片編輯處理完成，狀態已重置")
 
-            # 啟動背景執行緒
-            thread = threading.Thread(target=process_image_async)
-            thread.start()
+            # 提交到有界執行緒池；容量滿時優雅降級
+            if not submit_image_task(process_image_async):
+                self.clear_user_state(user_id)
+                self.publisher.process_push_message(
+                    user_id,
+                    TextSendMessage(text="目前使用人數較多，請稍後再試 🙏"),
+                    event
+                )
 
         except Exception as e:
             # 發生錯誤時也要清除狀態
@@ -312,8 +317,8 @@ class EditFeature(BaseFeature):
                 "loadingSeconds": 45  # 圖片編輯可能需要更長時間
             }
             
-            # 發送請求
-            response = requests.post(url, headers=headers, json=data)
+            # 發送請求（連線 3 秒、讀取 10 秒逾時，避免執行緒卡死）
+            response = requests.post(url, headers=headers, json=data, timeout=(3, 10))
             
             if response.status_code == 200:
                 print(f"載入動畫已啟動，用戶: {user_id}")
