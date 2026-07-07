@@ -345,7 +345,8 @@ def handle_follow_event(event):
 
         # 發送歡迎訊息
         try:
-            publisher.push_text(user_id, welcome_message)
+            from linebot.models import TextSendMessage
+            publisher.process_push_message(user_id, TextSendMessage(text=welcome_message))
             print("✅ 歡迎訊息已發送")
         except Exception as e:
             print(f"❌ 發送歡迎訊息失敗: {str(e)}")
