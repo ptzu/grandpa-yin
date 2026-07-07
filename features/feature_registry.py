@@ -4,18 +4,28 @@ from .base_feature import BaseFeature
 
 logger = get_logger("registry")
 
+# 全局命令：這些命令可以在任何功能狀態下被執行（全專案唯一的一份清單）
+GLOBAL_COMMANDS = [
+    "點數", "點數查詢", "查看點數", "查詢點數",
+    "歷史", "交易記錄", "記錄",
+    "會員", "會員資訊",
+    "!功能", "功能", "！功能", "使用說明", "其他功能"
+]
+
+
+def is_global_command(message: str) -> bool:
+    """檢查訊息是否為全局命令"""
+    message = message.strip()
+    if message in GLOBAL_COMMANDS:
+        return True
+    if "點數" in message and ("查詢" in message or "查看" in message):
+        return True
+    return False
+
 
 class FeatureRegistry:
     """功能註冊表，負責路由訊息到對應的功能處理器"""
-    
-    # 全局命令：這些命令可以在任何功能狀態下被執行
-    GLOBAL_COMMANDS = [
-        "點數", "點數查詢", "查看點數", "查詢點數",
-        "歷史", "交易記錄", "記錄",
-        "會員", "會員資訊",
-        "!功能", "功能", "！功能", "使用說明", "其他功能"
-    ]
-    
+
     def __init__(self):
         self.features: List[BaseFeature] = []
     
@@ -107,14 +117,7 @@ class FeatureRegistry:
     
     def _is_global_command(self, message: str) -> bool:
         """檢查訊息是否為全局命令"""
-        message = message.strip()
-        # 完全匹配
-        if message in self.GLOBAL_COMMANDS:
-            return True
-        # 包含關鍵字的命令
-        if "點數" in message and ("查詢" in message or "查看" in message):
-            return True
-        return False
+        return is_global_command(message)
     
     def _get_user_state(self, user_id: str) -> dict:
         """獲取用戶狀態（需要從第一個功能中獲取 state_manager）"""
