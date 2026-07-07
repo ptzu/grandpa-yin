@@ -181,6 +181,47 @@ class MemberService:
                 print(f"❌ 扣除點數失敗: {str(e)}")
                 return False
 
+    def refund_points(self, user_id, points, feature_type=None, reason=None):
+        """功能處理失敗時退還點數，並在 usage_logs 留下 failed 記錄供稽核"""
+        if points <= 0:
+            print(f"❌ 點數必須為正數: {points}")
+            return False
+
+        with get_session() as session:
+            try:
+                account = _resolve_account(session, user_id, for_update=True)
+                if not account:
+                    print(f"❌ 會員不存在: {user_id}")
+                    return False
+
+                account.points_balance += points
+                new_balance = account.points_balance
+
+                session.add(Transaction(
+                    account_id=account.id,
+                    amount=points,
+                    service=SERVICE_NAME,
+                    balance_after=new_balance,
+                    description=f'銀爺爺：{feature_type} 失敗退點' if feature_type else '銀爺爺功能失敗退點',
+                ))
+
+                session.add(UsageLog(
+                    account_id=account.id,
+                    feature_type=feature_type or 'unknown',
+                    points_deducted=0,
+                    status='failed',
+                    log_metadata={'error': (reason or '')[:500], 'refunded_points': points},
+                ))
+
+                session.commit()
+                print(f"✅ 點數已退還: {user_id} (+{points}), 餘額: {new_balance}")
+                return True
+
+            except Exception as e:
+                session.rollback()
+                print(f"❌ 退還點數失敗: {str(e)}")
+                return False
+
     def get_point_history(self, user_id, limit=10):
         """查詢交易記錄"""
         with get_session() as session:

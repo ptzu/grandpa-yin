@@ -91,7 +91,17 @@ class EditFeature(BaseFeature):
             # 用戶沒有確認圖片編輯，靜默處理，不發送任何回覆
             print(f"用戶 {user_id} 上傳圖片但未確認圖片編輯功能，靜默處理")
             return None
-        
+
+        # 會員系統不可用時拒絕服務，避免免費放送處理額度
+        if not self.member_service:
+            self.clear_user_state(user_id)
+            return self.publisher.process_reply_message(
+                reply_token,
+                TextSendMessage(text="⚠️ 系統維護中，功能暫時無法使用，請稍後再試 🙏"),
+                user_id,
+                event
+            )
+
         try:
             # 1. 從 LINE 下載圖片並暫存
             message_content = self.line_bot_api.get_message_content(message_id)
@@ -127,19 +137,27 @@ class EditFeature(BaseFeature):
     
     def _handle_edit_request(self, reply_token: str, user_name: str, user_id: str, event: dict) -> dict:
         """處理圖片編輯請求"""
-        # 檢查點數（如果有 member_service）
-        if self.member_service:
-            member = self.member_service.get_or_create_member(user_id, user_name)
-            if member['points'] < self.required_points:
-                result = self.publisher.process_reply_message(
-                    reply_token,
-                    TextSendMessage(
-                        text=f"❌ 點數不足！\n\n💎 目前點數：{member['points']} 點\n💰 需要點數：{self.required_points} 點\n\n請輸入「點數」查看詳細資訊"
-                    ),
-                    user_id,
-                    event
-                )
-                return result
+        # 會員系統不可用時拒絕服務
+        if not self.member_service:
+            return self.publisher.process_reply_message(
+                reply_token,
+                TextSendMessage(text="⚠️ 系統維護中，功能暫時無法使用，請稍後再試 🙏"),
+                user_id,
+                event
+            )
+
+        # 檢查點數
+        member = self.member_service.get_or_create_member(user_id, user_name)
+        if member['points'] < self.required_points:
+            result = self.publisher.process_reply_message(
+                reply_token,
+                TextSendMessage(
+                    text=f"❌ 點數不足！\n\n💎 目前點數：{member['points']} 點\n💰 需要點數：{self.required_points} 點\n\n請輸入「點數」查看詳細資訊"
+                ),
+                user_id,
+                event
+            )
+            return result
         
         # 設定用戶狀態為等待圖片
         self.set_user_state(user_id, "waiting_image")
@@ -200,39 +218,52 @@ class EditFeature(BaseFeature):
                     if not current_state:
                         print(f"用戶 {user_id} 狀態已清除，停止處理")
                         return
-                    
+
                     image_data = current_state.get("data", {}).get("image_data")
                     description = current_state.get("data", {}).get("description")
-                    
+
                     if not image_data or not description:
-                        error_result = self.publisher.process_push_message(
+                        self.publisher.process_push_message(
                             user_id,
                             TextSendMessage(text="處理過程中遺失了圖片或描述資料，請重新開始。"),
                             event  # 傳遞 event 以支援群組聊天
                         )
-                        if error_result:
-                            print(f"背景處理時用戶無效，JSON 回應: {error_result}")
                         return
-                    
-                    # 將 base64 轉回 bytes
-                    image_bytes = base64.b64decode(image_data)
-                    
-                    # 使用 Replicate API 處理圖片
-                    output_url = self._edit_image(image_bytes, description)
-                    
-                    # 扣除點數（如果有 member_service）
-                    if self.member_service:
-                        success = self.member_service.deduct_points(
+
+                    # 先扣點，扣不到就不處理（避免先服務後扣點被免費使用）
+                    if not self.member_service.deduct_points(
+                        user_id,
+                        self.required_points,
+                        f"圖片編輯：{description[:20]}",
+                        feature_type='edit',
+                    ):
+                        self.publisher.process_push_message(
                             user_id,
-                            self.required_points,
-                            f"圖片編輯：{description[:20]}",
-                            feature_type='edit',
+                            TextSendMessage(text="❌ 點數不足或扣點失敗，本次未進行處理。\n請輸入「點數」查看剩餘點數。"),
+                            event
                         )
-                        if not success:
-                            print(f"⚠️ 扣點失敗，但圖片已處理完成: {user_id}")
-                    
+                        return
+
+                    try:
+                        # 將 base64 轉回 bytes 並呼叫 Replicate API 處理
+                        image_bytes = base64.b64decode(image_data)
+                        output_url = self._edit_image(image_bytes, description)
+                    except Exception as e:
+                        # 處理失敗 → 退點並留下 failed 稽核記錄
+                        print(f"❌ 圖片編輯處理失敗，退還點數: {str(e)}")
+                        self.member_service.refund_points(
+                            user_id, self.required_points,
+                            feature_type='edit', reason=str(e)
+                        )
+                        self.publisher.process_push_message(
+                            user_id,
+                            TextSendMessage(text="處理圖片時發生錯誤，點數已退還，請稍後再試 🙏"),
+                            event
+                        )
+                        return
+
                     # 回傳編輯後的圖片（載入動畫會自動停止）
-                    error_result = self.publisher.process_push_message(
+                    self.publisher.process_push_message(
                         user_id,
                         ImageSendMessage(
                             original_content_url=output_url,
@@ -240,18 +271,6 @@ class EditFeature(BaseFeature):
                         ),
                         event  # 傳遞 event 以支援群組聊天
                     )
-                    if error_result:
-                        print(f"背景處理時用戶無效，JSON 回應: {error_result}")
-                        
-                except Exception as e:
-                    # 回傳錯誤訊息（載入動畫會自動停止）
-                    error_result = self.publisher.process_push_message(
-                        user_id,
-                        TextSendMessage(text=f"處理圖片時發生錯誤: {str(e)}"),
-                        event  # 傳遞 event 以支援群組聊天
-                    )
-                    if error_result:
-                        print(f"背景處理時用戶無效，JSON 回應: {error_result}")
                 finally:
                     # 處理完成後清除用戶狀態
                     self.clear_user_state(user_id)

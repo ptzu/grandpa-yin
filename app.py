@@ -1,4 +1,6 @@
 import os
+import time
+import threading
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -21,6 +23,27 @@ user_state_manager = None
 feature_registry = None
 member_service = None
 _initialized = False
+
+# 已處理事件的記憶體快取，防止 LINE webhook 重送造成重複處理／重複扣點。
+# 注意：僅在單一 process 內去重；多 worker 部署時各 process 各自維護。
+_processed_events = {}
+_processed_events_lock = threading.Lock()
+_PROCESSED_EVENT_TTL = 600  # 秒
+
+
+def _is_duplicate_event(event_id):
+    """檢查 webhookEventId 是否已處理過；未處理過則記錄並回傳 False"""
+    now = time.time()
+    with _processed_events_lock:
+        expired = [eid for eid, ts in _processed_events.items()
+                   if now - ts > _PROCESSED_EVENT_TTL]
+        for eid in expired:
+            del _processed_events[eid]
+
+        if event_id in _processed_events:
+            return True
+        _processed_events[event_id] = now
+        return False
 
 def init():
     """初始化所有 LINE Bot 相關組件"""
@@ -168,6 +191,12 @@ def webhook():
         events = json.loads(body).get('events', [])
         
         for event in events:
+            # 去重：LINE 在 webhook 回應逾時／非 200 時會重送同一個 event
+            event_id = event.get('webhookEventId')
+            if event_id and _is_duplicate_event(event_id):
+                print(f"⏭️  跳過重複的 webhook event: {event_id}")
+                continue
+
             if event.get('type') == 'follow':
                 # 處理加好友事件
                 result = handle_follow_event(event)

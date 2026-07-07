@@ -87,7 +87,17 @@ class ColorizeFeature(BaseFeature):
             # 用戶沒有確認彩色化，靜默處理，不發送任何回覆
             print(f"用戶 {user_id} 上傳圖片但未確認彩色化功能，靜默處理")
             return None
-        
+
+        # 會員系統不可用時拒絕服務，避免免費放送處理額度
+        if not self.member_service:
+            self.clear_user_state(user_id)
+            return self.publisher.process_reply_message(
+                reply_token,
+                TextSendMessage(text="⚠️ 系統維護中，功能暫時無法使用，請稍後再試 🙏"),
+                user_id,
+                event
+            )
+
         try:
             # 設定狀態為正在彩色化
             self.set_user_state(user_id, "processing")
@@ -115,21 +125,38 @@ class ColorizeFeature(BaseFeature):
             # 4. 在背景執行彩色化處理
             def process_image_async():
                 try:
-                    output_url = self._colorize_image(image_bytes)
-                    
-                    # 扣除點數（如果有 member_service）
-                    if self.member_service:
-                        success = self.member_service.deduct_points(
+                    # 先扣點，扣不到就不處理（避免先服務後扣點被免費使用）
+                    if not self.member_service.deduct_points(
+                        user_id,
+                        self.required_points,
+                        "彩色化圖片",
+                        feature_type='colorize',
+                    ):
+                        self.publisher.process_push_message(
                             user_id,
-                            self.required_points,
-                            "彩色化圖片",
-                            feature_type='colorize',
+                            TextSendMessage(text="❌ 點數不足或扣點失敗，本次未進行處理。\n請輸入「點數」查看剩餘點數。"),
+                            event
                         )
-                        if not success:
-                            print(f"⚠️ 扣點失敗，但圖片已處理完成: {user_id}")
-                    
+                        return
+
+                    try:
+                        output_url = self._colorize_image(image_bytes)
+                    except Exception as e:
+                        # 處理失敗 → 退點並留下 failed 稽核記錄
+                        print(f"❌ 彩色化處理失敗，退還點數: {str(e)}")
+                        self.member_service.refund_points(
+                            user_id, self.required_points,
+                            feature_type='colorize', reason=str(e)
+                        )
+                        self.publisher.process_push_message(
+                            user_id,
+                            TextSendMessage(text="處理圖片時發生錯誤，點數已退還，請稍後再試 🙏"),
+                            event
+                        )
+                        return
+
                     # 回傳彩色圖片（載入動畫會自動停止）
-                    error_result = self.publisher.process_push_message(
+                    self.publisher.process_push_message(
                         user_id,
                         ImageSendMessage(
                             original_content_url=output_url,
@@ -137,18 +164,6 @@ class ColorizeFeature(BaseFeature):
                         ),
                         event  # 傳遞 event 以支援群組聊天
                     )
-                    if error_result:
-                        print(f"背景處理時用戶無效，JSON 回應: {error_result}")
-                        
-                except Exception as e:
-                    # 回傳錯誤訊息（載入動畫會自動停止）
-                    error_result = self.publisher.process_push_message(
-                        user_id,
-                        TextSendMessage(text=f"處理圖片時發生錯誤: {str(e)}"),
-                        event  # 傳遞 event 以支援群組聊天
-                    )
-                    if error_result:
-                        print(f"背景處理時用戶無效，JSON 回應: {error_result}")
                 finally:
                     # 處理完成後清除用戶狀態
                     self.clear_user_state(user_id)
@@ -174,19 +189,27 @@ class ColorizeFeature(BaseFeature):
     
     def _handle_colorize_request(self, reply_token: str, user_name: str, user_id: str, event: dict) -> dict:
         """處理彩色化請求"""
-        # 檢查點數（如果有 member_service）
-        if self.member_service:
-            member = self.member_service.get_or_create_member(user_id, user_name)
-            if member['points'] < self.required_points:
-                result = self.publisher.process_reply_message(
-                    reply_token,
-                    TextSendMessage(
-                        text=f"❌ 點數不足！\n\n💎 目前點數：{member['points']} 點\n💰 需要點數：{self.required_points} 點\n\n請輸入「點數」查看詳細資訊"
-                    ),
-                    user_id,
-                    event
-                )
-                return result
+        # 會員系統不可用時拒絕服務
+        if not self.member_service:
+            return self.publisher.process_reply_message(
+                reply_token,
+                TextSendMessage(text="⚠️ 系統維護中，功能暫時無法使用，請稍後再試 🙏"),
+                user_id,
+                event
+            )
+
+        # 檢查點數
+        member = self.member_service.get_or_create_member(user_id, user_name)
+        if member['points'] < self.required_points:
+            result = self.publisher.process_reply_message(
+                reply_token,
+                TextSendMessage(
+                    text=f"❌ 點數不足！\n\n💎 目前點數：{member['points']} 點\n💰 需要點數：{self.required_points} 點\n\n請輸入「點數」查看詳細資訊"
+                ),
+                user_id,
+                event
+            )
+            return result
         
         # 設定用戶狀態為等待圖片
         self.set_user_state(user_id, "waiting")
