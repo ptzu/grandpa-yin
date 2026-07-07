@@ -1,21 +1,17 @@
 import os
 import base64
-import tempfile
 import requests
 import replicate
 import threading
-import time
 from .base_feature import BaseFeature
-from linebot.models import TextSendMessage, ImageSendMessage, QuickReply, QuickReplyButton, MessageAction, Sender
+from linebot.models import TextSendMessage, ImageSendMessage
 
 
 class ColorizeFeature(BaseFeature):
     """圖片彩色化功能處理器"""
-    
+
     def __init__(self, line_bot_api, publisher, state_manager, member_service=None):
         super().__init__(line_bot_api, publisher, state_manager, member_service)
-        # 設定 Replicate API token
-        os.environ["REPLICATE_API_TOKEN"] = os.getenv("REPLICATE_API_TOKEN")
         self.replicate_model = "flux-kontext-apps/restore-image"
         self.required_points = int(os.getenv("COLORIZE_COST", "10"))
     
@@ -205,9 +201,6 @@ class ColorizeFeature(BaseFeature):
         """開始載入動畫"""
         try:
             # 使用 LINE Bot API 的載入動畫功能
-            import requests
-            
-            # 構建請求 URL
             url = "https://api.line.me/v2/bot/chat/loading/start"
             
             # 設定 headers

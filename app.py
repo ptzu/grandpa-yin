@@ -245,18 +245,15 @@ def handle_follow_event(event):
         try:
             profile = line_bot_api.get_profile(user_id)
             display_name = profile.display_name
-            picture_url = profile.picture_url
             print(f"👤 用戶資料: {display_name}")
         except Exception as e:
             print(f"⚠️  無法取得用戶資料: {str(e)}")
             display_name = "使用者"
-            picture_url = None
-        
+
         # 建立或更新會員
         member = member_service.get_or_create_member(
             user_id=user_id,
-            display_name=display_name,
-            picture_url=picture_url
+            display_name=display_name
         )
         
         if not member:

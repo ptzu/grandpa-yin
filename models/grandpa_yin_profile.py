@@ -18,14 +18,3 @@ class GrandpaYinProfile(Base):
 
     def __repr__(self):
         return f"<GrandpaYinProfile(account_id={self.account_id}, display_name={self.display_name}, status={self.status})>"
-
-    def to_dict(self):
-        return {
-            'account_id': str(self.account_id),
-            'preferred_nickname': self.preferred_nickname,
-            'is_tutorial_completed': self.is_tutorial_completed,
-            'display_name': self.display_name,
-            'status': self.status,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-        }

@@ -80,17 +80,16 @@ PORT=5000
 
 ### 資料庫初始化
 
-在首次啟動前，需要初始化資料庫：
+資料庫 schema 由 Supabase migrations 管理（見 `altide-landing-page/supabase/migrations/`），無需在本專案建表。
+
+輔助腳本：
 
 ```bash
-# 建立資料庫表格
-python scripts/init_db.py
+# 手動新增會員 / 加點（互動式）
+python scripts/add_member.py
 
-# 測試資料庫連線和狀態管理
-python test/test_user_state_db.py
-
-# 遷移現有狀態（如果有）
-python scripts/migrate_user_states.py
+# 清理超過 24 小時的舊用戶狀態
+python scripts/cleanup_user_states.py 24
 ```
 
 ### 本地開發環境
@@ -99,7 +98,7 @@ python scripts/migrate_user_states.py
 
 ```bash
 cd test
-python start_local_test.py
+python start_local_server.py
 ```
 
 此腳本會自動：
@@ -127,24 +126,17 @@ ngrok http 5000
 
 ### 生產環境部署
 
-#### Heroku 部署
+#### Railway 部署
 
-1. 建立 Heroku 應用程式
-```bash
-heroku create your-app-name
-```
-
-2. 設定環境變數
-```bash
-heroku config:set CHANNEL_ACCESS_TOKEN=your_token
-heroku config:set CHANNEL_SECRET=your_secret
-heroku config:set REPLICATE_API_TOKEN=your_replicate_token
-```
-
-3. 部署應用程式
-```bash
-git push heroku main
-```
+1. 在 [Railway](https://railway.app/) 建立專案並連結此 Git repository
+2. 在 Railway 專案的 Variables 設定環境變數：
+   - `CHANNEL_ACCESS_TOKEN`
+   - `CHANNEL_SECRET`
+   - `REPLICATE_API_TOKEN`
+   - `DATABASE_URL`（Supabase 連線字串）
+   - `COLORIZE_COST`、`EDIT_COST`、`WELCOME_POINTS`（可選）
+3. Push 到 main 分支即自動部署（啟動指令見 `Procfile`）
+4. 將 Railway 提供的網域設定為 LINE Webhook URL：`https://your-app.up.railway.app/webhook`
 
 ## 📱 使用方式
 
@@ -166,22 +158,37 @@ git push heroku main
 ## 🏗️ 專案結構
 
 ```
-LineBot/
-├── app.py                      # 主應用程式入口
+grandpa-yin/
+├── app.py                      # 主應用程式入口（webhook、初始化）
 ├── message_publisher.py        # 訊息發送器
-├── user_state_manager.py       # 用戶狀態管理
+├── user_state_manager.py       # 用戶狀態管理（bot_sessions）
 ├── features/                   # 功能模組
-│   ├── __init__.py
 │   ├── base_feature.py         # 功能基礎類別
-│   ├── feature_registry.py    # 功能註冊表
+│   ├── feature_registry.py     # 功能註冊表（訊息路由）
 │   ├── menu_feature.py         # 選單功能
-│   └── colorize_feature.py     # 彩色化功能
-├── test/                       # 測試相關
-│   ├── start_local_test.py     # 本地測試啟動器
-│   └── test_local.py          # 本地測試腳本
+│   ├── colorize_feature.py     # 圖片彩色化功能
+│   ├── edit_feature.py         # 圖片編輯功能
+│   └── member_feature.py       # 會員查詢功能
+├── services/
+│   └── member_service.py       # 會員服務層（點數、交易）
+├── models/                     # SQLAlchemy 資料模型
+│   ├── database.py             # 連線與 session 管理
+│   ├── account.py              # 帳號（共用點數錢包）
+│   ├── linked_identity.py      # 第三方身分綁定
+│   ├── grandpa_yin_profile.py  # 長輩專屬設定
+│   ├── bot_session.py          # 對話狀態
+│   ├── transaction.py          # 點數交易記錄
+│   └── usage_log.py            # 功能使用記錄
+├── scripts/                    # 管理腳本
+│   ├── add_member.py           # 手動新增會員
+│   └── cleanup_user_states.py  # 清理舊狀態
+├── test/                       # 本地測試
+│   ├── start_local_server.py   # 本地測試啟動器（含 ngrok）
+│   └── test_local.py           # 模擬 LINE 訊息測試
+├── log/                        # 設計文件
 ├── requirements.txt            # Python 依賴
-├── Procfile                   # Heroku 部署配置
-└── env_example.txt            # 環境變數範例
+├── Procfile                    # 部署啟動指令（gunicorn）
+└── env_example.txt             # 環境變數範例
 ```
 
 ## 🔧 開發指南

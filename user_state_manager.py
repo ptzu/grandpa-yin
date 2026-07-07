@@ -116,20 +116,6 @@ class UserStateManager:
             print(f"清除用戶狀態失敗: {str(e)}")
             raise e
 
-    def is_waiting_for_colorize(self, user_id: str) -> bool:
-        """向後相容：是否在等待彩色化確認"""
-        state = self.get_state(user_id)
-        if state:
-            return state.get("feature") == "colorize" and state.get("state") == "waiting"
-        return False
-
-    def is_colorizing(self, user_id: str) -> bool:
-        """向後相容：是否正在進行彩色化處理"""
-        state = self.get_state(user_id)
-        if state:
-            return state.get("feature") == "colorize" and state.get("state") == "processing"
-        return False
-
     def get_all_states(self) -> Dict[str, Dict[str, Any]]:
         """獲取所有用戶狀態（回傳以 LINE UID 為 key 的 dict，給 debug/admin 用）"""
         try:

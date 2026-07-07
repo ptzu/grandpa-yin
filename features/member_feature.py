@@ -193,7 +193,6 @@ class MemberFeature(BaseFeature):
             # 格式化日期（從 ISO 字符串轉換）
             if created_at_str:
                 try:
-                    from datetime import datetime
                     created_at = datetime.fromisoformat(created_at_str)
                     created_at_str = created_at.strftime("%Y/%m/%d %H:%M")
                 except Exception as e:

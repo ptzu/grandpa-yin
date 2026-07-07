@@ -30,8 +30,6 @@ def _member_dict(account, profile, line_uid):
     return {
         'user_id': line_uid,
         'display_name': (profile.display_name if profile else None) or '使用者',
-        'picture_url': None,  # 不再儲存，顯示時即時查 LINE API
-        'email': None,        # shadow account 無 email；有 auth_user 時從 auth.users 取
         'points': account.points_balance,
         'status': profile.status if profile else 'normal',
         'created_at': account.created_at.isoformat() if account.created_at else None,
@@ -60,7 +58,7 @@ def _transaction_to_history_dict(t):
 class MemberService:
     """會員服務層 - 對外 API 以 LINE UID 為主鍵，內部解析至 account_id"""
 
-    def get_or_create_member(self, user_id, display_name=None, picture_url=None, email=None):
+    def get_or_create_member(self, user_id, display_name=None):
         """取得或建立會員。新 LINE UID 自動建立 shadow account + linked_identity + grandpa_yin_profile。"""
         with get_session() as session:
             account = _resolve_account(session, user_id)
@@ -103,12 +101,6 @@ class MemberService:
                 return None
             profile = session.query(GrandpaYinProfile).filter_by(account_id=account.id).first()
             return _member_dict(account, profile, user_id)
-
-    def get_member_points(self, user_id):
-        """查詢會員點數"""
-        with get_session() as session:
-            account = _resolve_account(session, user_id)
-            return account.points_balance if account else None
 
     def add_points(self, user_id, points, transaction_type='earn', description=None):
         """增加點數並記錄交易。transaction_type 為舊介面相容，併入 description。"""
@@ -203,33 +195,3 @@ class MemberService:
                 .all()
             )
             return [_transaction_to_history_dict(t) for t in transactions]
-
-    def update_member_status(self, user_id, status):
-        """更新 grandpa_yin 端的會員狀態"""
-        valid_statuses = ['normal', 'vip', 'suspended', 'banned']
-        if status not in valid_statuses:
-            print(f"❌ 無效的狀態: {status}")
-            return False
-
-        with get_session() as session:
-            try:
-                account = _resolve_account(session, user_id)
-                if not account:
-                    print(f"❌ 會員不存在: {user_id}")
-                    return False
-
-                profile = session.query(GrandpaYinProfile).filter_by(account_id=account.id).first()
-                if not profile:
-                    print(f"❌ 長輩資料不存在: {user_id}")
-                    return False
-
-                old_status = profile.status
-                profile.status = status
-                session.commit()
-                print(f"✅ 會員狀態已更新: {user_id} ({old_status} → {status})")
-                return True
-
-            except Exception as e:
-                session.rollback()
-                print(f"❌ 更新狀態失敗: {str(e)}")
-                return False

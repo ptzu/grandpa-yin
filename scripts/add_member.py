@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
+from models.database import init_database
 from services.member_service import MemberService
 
 def add_member():
@@ -18,12 +19,13 @@ def add_member():
     print("=" * 50)
     print("👤 新增會員腳本")
     print("=" * 50)
-    
+
     # 載入環境變數
     load_dotenv()
-    
+
     try:
-        # 建立會員服務（連線由 get_session() 首次呼叫時建立）
+        # 初始化資料庫連線（get_session() 需要先初始化）
+        init_database()
         member_service = MemberService()
         
         # 取得用戶輸入
@@ -36,27 +38,15 @@ def add_member():
         display_name = input("顯示名稱 (例如: 測試用戶): ").strip()
         if not display_name:
             display_name = "使用者"
-        
-        picture_url = input("頭像 URL (可選): ").strip()
-        if not picture_url:
-            picture_url = None
-        
-        email = input("電子郵件 (可選): ").strip()
-        if not email:
-            email = None
-        
+
         # 新增會員
         print(f"\n📝 正在新增會員...")
         print(f"   User ID: {user_id}")
         print(f"   顯示名稱: {display_name}")
-        print(f"   頭像: {picture_url or '無'}")
-        print(f"   信箱: {email or '無'}")
-        
+
         member = member_service.get_or_create_member(
             user_id=user_id,
-            display_name=display_name,
-            picture_url=picture_url,
-            email=email
+            display_name=display_name
         )
         
         if member:

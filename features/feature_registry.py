@@ -121,7 +121,3 @@ class FeatureRegistry:
     def get_all_features(self) -> List[BaseFeature]:
         """獲取所有註冊的功能"""
         return self.features.copy()
-    
-    def get_feature_names(self) -> List[str]:
-        """獲取所有功能名稱"""
-        return [feature.name for feature in self.features]

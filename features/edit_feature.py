@@ -1,21 +1,17 @@
 import os
 import base64
-import tempfile
 import requests
 import replicate
 import threading
-import time
 from .base_feature import BaseFeature
-from linebot.models import TextSendMessage, ImageSendMessage, QuickReply, QuickReplyButton, MessageAction, Sender
+from linebot.models import TextSendMessage, ImageSendMessage
 
 
 class EditFeature(BaseFeature):
     """圖片編輯功能處理器"""
-    
+
     def __init__(self, line_bot_api, publisher, state_manager, member_service=None):
         super().__init__(line_bot_api, publisher, state_manager, member_service)
-        # 設定 Replicate API token
-        os.environ["REPLICATE_API_TOKEN"] = os.getenv("REPLICATE_API_TOKEN")
         self.replicate_model = "google/nano-banana"
         self.required_points = int(os.getenv("EDIT_COST", "5"))
     
@@ -279,9 +275,6 @@ class EditFeature(BaseFeature):
         """開始載入動畫"""
         try:
             # 使用 LINE Bot API 的載入動畫功能
-            import requests
-            
-            # 構建請求 URL
             url = "https://api.line.me/v2/bot/chat/loading/start"
             
             # 設定 headers
@@ -390,42 +383,3 @@ class EditFeature(BaseFeature):
                 raise Exception("輸入參數格式錯誤，請檢查圖片和描述格式")
             else:
                 raise Exception(f"圖片編輯處理失敗: {str(e)}")
-    
-    def _convert_base64_to_url(self, image_base64: str) -> str:
-        """將 Base64 圖片數據轉換為可訪問的 URL"""
-        try:
-            import uuid
-            import tempfile
-            import os
-            
-            # 生成唯一的圖片 ID
-            image_id = str(uuid.uuid4())
-            
-            # 將 Base64 轉回 bytes
-            image_bytes = base64.b64decode(image_base64)
-            
-            # 創建臨時文件
-            temp_dir = tempfile.gettempdir()
-            temp_filename = f"linebot_image_{image_id}.jpg"
-            temp_filepath = os.path.join(temp_dir, temp_filename)
-            
-            # 寫入圖片文件
-            with open(temp_filepath, 'wb') as f:
-                f.write(image_bytes)
-            
-            print(f"📁 臨時圖片已保存: {temp_filepath}")
-            
-            # 返回可訪問的 URL（需要配置 web server 提供靜態文件服務）
-            # 這裡暫時返回 file:// URL 用於測試
-            file_url = f"file://{temp_filepath}"
-            
-            # 實際部署時應該返回 HTTP URL，例如：
-            # server_url = os.getenv("SERVER_URL", "https://your-app.herokuapp.com")
-            # return f"{server_url}/temp/{temp_filename}"
-            
-            print(f"🔗 生成的圖片 URL: {file_url}")
-            return file_url
-            
-        except Exception as e:
-            print(f"❌ Base64 轉 URL 失敗: {str(e)}")
-            raise Exception(f"圖片 URL 轉換失敗: {str(e)}")

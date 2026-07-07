@@ -16,12 +16,3 @@ class Account(Base):
 
     def __repr__(self):
         return f"<Account(id={self.id}, auth_user_id={self.auth_user_id}, points={self.points_balance})>"
-
-    def to_dict(self):
-        return {
-            'id': str(self.id),
-            'auth_user_id': str(self.auth_user_id) if self.auth_user_id else None,
-            'points_balance': self.points_balance,
-            'is_admin': self.is_admin,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-        }

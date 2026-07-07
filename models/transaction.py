@@ -18,14 +18,3 @@ class Transaction(Base):
 
     def __repr__(self):
         return f"<Transaction(account_id={self.account_id}, amount={self.amount}, service={self.service})>"
-
-    def to_dict(self):
-        return {
-            'id': str(self.id),
-            'account_id': str(self.account_id),
-            'amount': self.amount,
-            'service': self.service,
-            'balance_after': self.balance_after,
-            'description': self.description,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-        }

@@ -59,8 +59,3 @@ def get_session():
     finally:
         session.close()
 
-
-def get_engine():
-    """取得 engine（用於測試或特殊用途）"""
-    return _engine
-

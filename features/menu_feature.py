@@ -1,3 +1,4 @@
+import os
 from .base_feature import BaseFeature
 from linebot.models import TextSendMessage, QuickReply, QuickReplyButton, MessageAction
 
@@ -60,6 +61,8 @@ class MenuFeature(BaseFeature):
     
     def _handle_help(self, reply_token: str, user_name: str, user_id: str, event: dict) -> dict:
         """處理使用說明"""
+        colorize_cost = int(os.getenv("COLORIZE_COST", "10"))
+        edit_cost = int(os.getenv("EDIT_COST", "5"))
         help_message = f"""{user_name} 你好！✨
 ❓ 使用說明
 
@@ -84,7 +87,7 @@ class MenuFeature(BaseFeature):
 
 💡 貼心提醒：
 - 輸入 "!功能" 開啟功能選單
-- 每項功能會消耗 1 點點數 💎
+- 圖片彩色化每次消耗 {colorize_cost} 點、圖片編輯每次消耗 {edit_cost} 點 💎
 - 輸入「點數」查看剩餘點數"""
         
         result = self.publisher.process_reply_message(
