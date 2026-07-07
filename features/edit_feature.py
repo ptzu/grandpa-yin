@@ -3,7 +3,7 @@ import base64
 import requests
 import replicate
 import threading
-from .base_feature import BaseFeature
+from .base_feature import BaseFeature, _UNSET
 from linebot.models import TextSendMessage, ImageSendMessage
 
 
@@ -19,21 +19,21 @@ class EditFeature(BaseFeature):
     def name(self) -> str:
         return "edit"
     
-    def can_handle(self, message: str, user_id: str) -> bool:
+    def can_handle(self, message: str, user_id: str, user_state=_UNSET) -> bool:
         """判斷是否能處理此訊息"""
         # 處理圖片編輯相關的訊息
         if message == "圖片編輯":
             return True
-        
+
         # 檢查是否為全局命令（這些命令不應該被 edit 攔截）
         if self._is_global_command(message):
             return False
-        
+
         # 檢查用戶是否在圖片編輯狀態中
-        user_state = self.get_user_state(user_id)
-        if user_state and user_state.get("feature") == self.name:
+        state = self.resolve_user_state(user_id, user_state)
+        if state and state.get("feature") == self.name:
             return True
-        
+
         return False
     
     def _is_global_command(self, message: str) -> bool:

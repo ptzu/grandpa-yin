@@ -24,8 +24,8 @@ def init_database():
     # 建立 engine，優化連線設定
     _engine = create_engine(
         database_url,
-        pool_size=3,  # 減少連線池大小
-        max_overflow=5,  # 減少最大溢出連線
+        pool_size=5,  # 常駐連線數
+        max_overflow=10,  # 尖峰時的額外連線（webhook threads + 背景圖片處理共用）
         pool_pre_ping=True,  # 確保連線有效
         pool_recycle=3600,  # 連線回收時間（1小時）
         connect_args={

@@ -52,17 +52,18 @@ class FeatureRegistry:
                     return feature.handle_text(event)
         
         # 2. 如果不是全局命令，首先檢查用戶是否有特定功能的狀態
+        #    （狀態只查一次，傳給 can_handle 避免每個功能重複查 DB）
         user_state = self._get_user_state(user_id)
         if user_state and user_state.get("feature"):
             feature_name = user_state.get("feature")
             feature = self.get_feature_by_name(feature_name)
-            if feature and feature.can_handle(message, user_id):
+            if feature and feature.can_handle(message, user_id, user_state=user_state):
                 print(f"根據用戶狀態路由到功能: {feature_name}")
                 return feature.handle_text(event)
-        
+
         # 3. 如果沒有狀態或狀態中的功能無法處理，則尋找能處理此訊息的功能
         for feature in self.features:
-            if feature.can_handle(message, user_id):
+            if feature.can_handle(message, user_id, user_state=user_state):
                 print(f"路由到功能: {feature.name}")
                 return feature.handle_text(event)
         

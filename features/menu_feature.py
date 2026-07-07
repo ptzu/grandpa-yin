@@ -10,7 +10,7 @@ class MenuFeature(BaseFeature):
     def name(self) -> str:
         return "menu"
     
-    def can_handle(self, message: str, user_id: str) -> bool:
+    def can_handle(self, message: str, user_id: str, user_state=None) -> bool:
         """處理功能選單相關的訊息"""
         menu_commands = ["!功能", "功能", "！功能", "使用說明", "其他功能"]
         return message in menu_commands

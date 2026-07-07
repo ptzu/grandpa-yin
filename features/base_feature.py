@@ -3,6 +3,9 @@ from linebot import LineBotApi
 from message_publisher import MessagePublisher
 from user_state_manager import UserStateManager
 
+# can_handle 的 user_state 未傳入時的 sentinel（None 是合法的「無狀態」值）
+_UNSET = object()
+
 
 class BaseFeature(ABC):
     """所有功能的基礎類別"""
@@ -20,18 +23,25 @@ class BaseFeature(ABC):
         pass
     
     @abstractmethod
-    def can_handle(self, message: str, user_id: str) -> bool:
+    def can_handle(self, message: str, user_id: str, user_state=_UNSET) -> bool:
         """
         判斷是否能處理此訊息
-        
+
         Args:
             message: 用戶訊息
             user_id: 用戶 ID
-            
+            user_state: 已查詢好的用戶狀態（路由層傳入，避免每個功能重複查 DB）
+
         Returns:
             bool: 是否能處理
         """
         pass
+
+    def resolve_user_state(self, user_id: str, user_state=_UNSET):
+        """取得用戶狀態：優先使用路由層傳入的結果，未傳入才查 DB"""
+        if user_state is _UNSET:
+            return self.get_user_state(user_id)
+        return user_state
     
     @abstractmethod
     def handle_text(self, event: dict) -> dict:
@@ -71,7 +81,15 @@ class BaseFeature(ABC):
         return None
     
     def get_user_name(self, user_id: str) -> str:
-        """獲取用戶名稱"""
+        """獲取用戶名稱：優先讀 DB 會員資料，避免每則訊息都呼叫 LINE API"""
+        if self.member_service:
+            try:
+                member = self.member_service.get_member_info(user_id)
+                if member and member.get('display_name') and member['display_name'] != '使用者':
+                    return member['display_name']
+            except Exception as e:
+                print(f"讀取會員名稱失敗：{str(e)}")
+
         try:
             profile = self.line_bot_api.get_profile(user_id)
             return profile.display_name

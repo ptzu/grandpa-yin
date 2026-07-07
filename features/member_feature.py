@@ -9,7 +9,7 @@ class MemberFeature(BaseFeature):
     def name(self) -> str:
         return "member"
     
-    def can_handle(self, message: str, user_id: str) -> bool:
+    def can_handle(self, message: str, user_id: str, user_state=None) -> bool:
         """判斷是否能處理此訊息"""
         message = message.strip()
         
