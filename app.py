@@ -257,20 +257,17 @@ def handle_follow_event(event):
 
         logger.info(f"{'新會員已建立' if is_new_member else '會員資料已更新'}: {user_id}")
 
-        # 只對新會員贈送註冊獎勵點數
+        # 註冊獎勵：grant_signup_bonus 內部以 row lock + 交易記錄檢查保證
+        # 同一帳號只發放一次（防止 LINE 重送或快速解除封鎖再加回刷點數）
         welcome_points = int(os.getenv("WELCOME_POINTS", "0"))
-        if is_new_member and welcome_points > 0:
-            success = member_service.add_points(
-                user_id=user_id,
-                points=welcome_points,
-                transaction_type='admin_add',
-                description='新會員註冊獎勵'
-            )
-            if success:
-                logger.info(f"已贈送註冊獎勵: {user_id} +{welcome_points} 點")
-            else:
-                logger.error(f"贈送註冊獎勵失敗: {user_id}")
-        
+        bonus_granted = False
+        if welcome_points > 0:
+            bonus_granted = member_service.grant_signup_bonus(user_id, welcome_points)
+            if bonus_granted:
+                # 重新查詢，讓歡迎訊息顯示含獎勵的正確餘額
+                member = member_service.get_member_info(user_id) or member
+
+
         # 發送歡迎訊息（新舊會員不同內容）
         if is_new_member:
             welcome_message = f"""🎉 歡迎加入！
@@ -279,7 +276,7 @@ def handle_follow_event(event):
 📝 姓名：{member['display_name']}
 💎 點數：{member['points']} 點"""
 
-            if welcome_points > 0:
+            if bonus_granted:
                 welcome_message += f"\n🎁 註冊獎勵：+{welcome_points} 點"
 
             welcome_message += """

@@ -11,6 +11,7 @@ logger = get_logger("member_service")
 
 LINE_PROVIDER = 'line'
 SERVICE_NAME = 'silver-grandpa'
+SIGNUP_BONUS_DESCRIPTION = '新會員註冊獎勵'
 
 
 def _resolve_account(session, line_uid, for_update=False):
@@ -136,6 +137,59 @@ class MemberService:
             except Exception as e:
                 session.rollback()
                 logger.exception(f"增加點數失敗: {user_id}")
+                return False
+
+    def grant_signup_bonus(self, user_id, points):
+        """冪等發放註冊獎勵：同一 account 只會發放一次。
+
+        用 row lock + 交易記錄唯一性檢查取代呼叫端的「先查再加點」，
+        兩個 follow event 同時到達時第二個會被鎖住、看到已有獎勵而跳過。
+
+        Returns:
+            bool: 是否實際發放（已發放過或失敗都回傳 False）
+        """
+        if points <= 0:
+            logger.error(f"點數必須為正數: {points}")
+            return False
+
+        with get_session() as session:
+            try:
+                account = _resolve_account(session, user_id, for_update=True)
+                if not account:
+                    logger.error(f"會員不存在: {user_id}")
+                    return False
+
+                existing_bonus = (
+                    session.query(Transaction)
+                    .filter_by(
+                        account_id=account.id,
+                        service=SERVICE_NAME,
+                        description=SIGNUP_BONUS_DESCRIPTION,
+                    )
+                    .first()
+                )
+                if existing_bonus:
+                    logger.info(f"註冊獎勵已發放過，跳過: {user_id}")
+                    return False
+
+                account.points_balance += points
+                new_balance = account.points_balance
+
+                session.add(Transaction(
+                    account_id=account.id,
+                    amount=points,
+                    service=SERVICE_NAME,
+                    balance_after=new_balance,
+                    description=SIGNUP_BONUS_DESCRIPTION,
+                ))
+
+                session.commit()
+                logger.info(f"註冊獎勵已發放: {user_id} (+{points}), 餘額: {new_balance}")
+                return True
+
+            except Exception:
+                session.rollback()
+                logger.exception(f"發放註冊獎勵失敗: {user_id}")
                 return False
 
     def deduct_points(self, user_id, points, description=None, feature_type=None):
