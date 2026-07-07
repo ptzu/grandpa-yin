@@ -13,6 +13,8 @@ FLASK_DEBUG=False
 LOG_LEVEL=INFO
 # Sentry 錯誤追蹤（可選，留空則不啟用）
 SENTRY_DSN=
+# Sentry 環境標籤，用來區分 production / staging（預設 production）
+SENTRY_ENVIRONMENT=production
 
 # Database 資料庫設定（會員系統）
 DATABASE_URL=postgresql://user:password@host:port/dbname

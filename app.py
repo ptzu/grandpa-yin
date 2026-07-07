@@ -6,6 +6,7 @@ from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from app_logger import get_logger, request_id_var
+from error_tracking import init_sentry, set_request_context
 from message_publisher import MessagePublisher
 from user_state_manager import UserStateManager
 from features.feature_registry import FeatureRegistry
@@ -68,14 +69,7 @@ def init():
         raise ValueError("REPLICATE_API_TOKEN 環境變數未設定")
 
     # 2. 錯誤追蹤（設定 SENTRY_DSN 才啟用）
-    if os.getenv("SENTRY_DSN"):
-        try:
-            import sentry_sdk
-            from sentry_sdk.integrations.flask import FlaskIntegration
-            sentry_sdk.init(dsn=os.getenv("SENTRY_DSN"), integrations=[FlaskIntegration()])
-            logger.info("Sentry 錯誤追蹤已啟用")
-        except ImportError:
-            logger.warning("已設定 SENTRY_DSN 但未安裝 sentry-sdk，錯誤追蹤未啟用")
+    init_sentry()
 
     # 3. 初始化資料庫（如果有設定 DATABASE_URL）
     if os.getenv("DATABASE_URL"):
@@ -140,8 +134,10 @@ def main():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    # 每個 request 一個追蹤 ID，log 與背景工作都會帶上
-    request_id_var.set(uuid.uuid4().hex[:8])
+    # 每個 request 一個追蹤 ID，log、Sentry 事件與背景工作都會帶上
+    request_id = uuid.uuid4().hex[:8]
+    request_id_var.set(request_id)
+    set_request_context(request_id=request_id)
 
     # 如果模組載入時初始化失敗，在這裡重試一次
     if not _initialized:
@@ -173,6 +169,11 @@ def webhook():
             if event_id and _is_duplicate_event(event_id):
                 logger.info(f"跳過重複的 webhook event: {event_id}")
                 continue
+
+            # Sentry 事件附上發生問題的用戶，客訴時可直接比對
+            event_user_id = event.get('source', {}).get('userId')
+            if event_user_id:
+                set_request_context(user_id=event_user_id)
 
             if event.get('type') == 'follow':
                 # 處理加好友事件
