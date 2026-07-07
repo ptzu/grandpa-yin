@@ -2,10 +2,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from sqlalchemy import delete
 
+from app_logger import get_logger
 from models.database import get_session
 from models.account import Account
 from models.linked_identity import LinkedIdentity
 from models.bot_session import BotSession
+
+logger = get_logger("user_state")
 
 
 LINE_PROVIDER = 'line'
@@ -58,18 +61,18 @@ class UserStateManager:
                 if existing:
                     existing.current_state = current_state
                     existing.state_metadata = data
-                    print(f"用戶 {user_id} 狀態已更新: {state}")
+                    logger.debug(f"用戶 {user_id} 狀態已更新: {state}")
                 else:
                     session.add(BotSession(
                         account_id=account.id,
                         current_state=current_state,
                         state_metadata=data,
                     ))
-                    print(f"用戶 {user_id} 狀態已建立: {state}")
+                    logger.debug(f"用戶 {user_id} 狀態已建立: {state}")
 
                 session.commit()
         except Exception as e:
-            print(f"設定用戶狀態失敗: {str(e)}")
+            logger.exception(f"設定用戶 {user_id} 狀態失敗")
             raise e
 
     def get_state(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -88,7 +91,7 @@ class UserStateManager:
                     "data": bot_session.state_metadata or None,
                 }
         except Exception as e:
-            print(f"獲取用戶狀態失敗: {str(e)}")
+            logger.exception(f"獲取用戶 {user_id} 狀態失敗")
             return None
 
     def clear_state(self, user_id: str):
@@ -97,7 +100,7 @@ class UserStateManager:
             with get_session() as session:
                 account = _resolve_account(session, user_id)
                 if not account:
-                    print(f"用戶 {user_id} 沒有 account，略過清除")
+                    logger.debug(f"用戶 {user_id} 沒有 account，略過清除")
                     return
 
                 bot_session = session.query(BotSession).filter_by(account_id=account.id).first()
@@ -109,11 +112,11 @@ class UserStateManager:
                     }
                     session.delete(bot_session)
                     session.commit()
-                    print(f"用戶 {user_id} 狀態已清除 (原狀態: {old_state})")
+                    logger.debug(f"用戶 {user_id} 狀態已清除 (原狀態: {old_state})")
                 else:
-                    print(f"用戶 {user_id} 沒有狀態需要清除")
+                    logger.debug(f"用戶 {user_id} 沒有狀態需要清除")
         except Exception as e:
-            print(f"清除用戶狀態失敗: {str(e)}")
+            logger.exception(f"清除用戶 {user_id} 狀態失敗")
             raise e
 
     def get_all_states(self) -> Dict[str, Dict[str, Any]]:
@@ -135,7 +138,7 @@ class UserStateManager:
                     for bs, identity in rows
                 }
         except Exception as e:
-            print(f"獲取所有狀態失敗: {str(e)}")
+            logger.exception("獲取所有狀態失敗")
             return {}
 
     def cleanup_old_states(self, hours: int = 24):
@@ -148,8 +151,8 @@ class UserStateManager:
                     delete(BotSession).where(BotSession.updated_at < cutoff_time)
                 )
                 session.commit()
-                print(f"已清理 {result.rowcount} 個超過 {hours} 小時的舊狀態")
+                logger.info(f"已清理 {result.rowcount} 個超過 {hours} 小時的舊狀態")
                 return result.rowcount
         except Exception as e:
-            print(f"清理舊狀態失敗: {str(e)}")
+            logger.exception("清理舊狀態失敗")
             return 0

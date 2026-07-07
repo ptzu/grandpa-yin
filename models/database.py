@@ -3,6 +3,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from contextlib import contextmanager
 
+from app_logger import get_logger
+
+logger = get_logger("database")
+
 # 建立 Base 模型類別
 Base = declarative_base()
 
@@ -19,7 +23,7 @@ def init_database():
     if not database_url:
         raise ValueError("DATABASE_URL 環境變數未設定")
     
-    print(f"🗄️  連接資料庫...")
+    logger.info("連接資料庫...")
     
     # 建立 engine，優化連線設定
     _engine = create_engine(
@@ -38,7 +42,7 @@ def init_database():
     # 建立 Session factory
     _SessionFactory = sessionmaker(bind=_engine)
     
-    print("✅ 資料庫連線初始化完成")
+    logger.info("資料庫連線初始化完成")
     
     return _engine
 

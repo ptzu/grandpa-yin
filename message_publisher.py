@@ -1,6 +1,9 @@
 import time
 import requests
 from linebot.exceptions import LineBotApiError
+from app_logger import get_logger
+
+logger = get_logger("publisher")
 
 
 class MessagePublisher:
@@ -25,17 +28,17 @@ class MessagePublisher:
             except LineBotApiError as e:
                 status_code = getattr(e, 'status_code', None)
                 if status_code is not None and status_code < 500:
-                    print(f"❌ {description} 失敗 (status={status_code})，不重試: {str(e)}")
+                    logger.error(f"{description} 失敗 (status={status_code})，不重試: {str(e)}")
                     return False
-                print(f"⚠️ {description} 失敗 (status={status_code})，第 {attempt}/{max_attempts} 次: {str(e)}")
+                logger.warning(f"{description} 失敗 (status={status_code})，第 {attempt}/{max_attempts} 次: {str(e)}")
             except requests.exceptions.RequestException as e:
-                print(f"⚠️ {description} 網路錯誤，第 {attempt}/{max_attempts} 次: {str(e)}")
+                logger.warning(f"{description} 網路錯誤，第 {attempt}/{max_attempts} 次: {str(e)}")
 
             if attempt < max_attempts:
                 time.sleep(delay)
                 delay *= 2
 
-        print(f"❌ {description} 重試 {max_attempts} 次後仍失敗")
+        logger.error(f"{description} 重試 {max_attempts} 次後仍失敗")
         return False
 
     def _get_source_type(self, event):
@@ -105,7 +108,7 @@ class MessagePublisher:
             self.line_bot_api.reply_message(reply_token, messages)
         except LineBotApiError as e:
             status_code = getattr(e, 'status_code', None)
-            print(f"❌ 回覆訊息失敗 (user={user_id}, status={status_code}): {str(e)}")
+            logger.error(f"回覆訊息失敗 (user={user_id}, status={status_code}): {str(e)}")
         return None
 
     def reply_text(self, reply_token, text, user_id=None, event=None):

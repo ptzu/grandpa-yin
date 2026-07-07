@@ -1,7 +1,10 @@
 from abc import ABC, abstractmethod
 from linebot import LineBotApi
+from app_logger import get_logger
 from message_publisher import MessagePublisher
 from user_state_manager import UserStateManager
+
+logger = get_logger("feature")
 
 # can_handle 的 user_state 未傳入時的 sentinel（None 是合法的「無狀態」值）
 _UNSET = object()
@@ -88,13 +91,13 @@ class BaseFeature(ABC):
                 if member and member.get('display_name') and member['display_name'] != '使用者':
                     return member['display_name']
             except Exception as e:
-                print(f"讀取會員名稱失敗：{str(e)}")
+                logger.warning(f"讀取會員名稱失敗：{str(e)}")
 
         try:
             profile = self.line_bot_api.get_profile(user_id)
             return profile.display_name
         except Exception as e:
-            print(f"無法獲取用戶名稱：{str(e)}")
+            logger.warning(f"無法獲取用戶名稱：{str(e)}")
             return "使用者"
     
     def get_user_id(self, event: dict) -> str:

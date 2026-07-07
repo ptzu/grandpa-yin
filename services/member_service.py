@@ -1,9 +1,12 @@
+from app_logger import get_logger
 from models.database import get_session
 from models.account import Account
 from models.linked_identity import LinkedIdentity
 from models.grandpa_yin_profile import GrandpaYinProfile
 from models.transaction import Transaction
 from models.usage_log import UsageLog
+
+logger = get_logger("member_service")
 
 
 LINE_PROVIDER = 'line'
@@ -69,7 +72,7 @@ class MemberService:
                 if profile and display_name and profile.display_name != display_name:
                     profile.display_name = display_name
                     session.commit()
-                    print(f"✅ 會員資料已更新: {user_id}")
+                    logger.info(f"會員資料已更新: {user_id}")
                 return _member_dict(account, profile, user_id)
 
             # 新會員：建 shadow account + linked_identity + grandpa_yin_profile
@@ -90,7 +93,7 @@ class MemberService:
             )
             session.add(profile)
             session.commit()
-            print(f"✅ 新會員已建立: {user_id} ({display_name})")
+            logger.info(f"新會員已建立: {user_id} ({display_name})")
             return _member_dict(account, profile, user_id)
 
     def get_member_info(self, user_id):
@@ -105,14 +108,14 @@ class MemberService:
     def add_points(self, user_id, points, transaction_type='earn', description=None):
         """增加點數並記錄交易。transaction_type 為舊介面相容，併入 description。"""
         if points <= 0:
-            print(f"❌ 點數必須為正數: {points}")
+            logger.error(f"點數必須為正數: {points}")
             return False
 
         with get_session() as session:
             try:
                 account = _resolve_account(session, user_id, for_update=True)
                 if not account:
-                    print(f"❌ 會員不存在: {user_id}")
+                    logger.error(f"會員不存在: {user_id}")
                     return False
 
                 account.points_balance += points
@@ -127,29 +130,29 @@ class MemberService:
                 ))
 
                 session.commit()
-                print(f"✅ 點數已增加: {user_id} (+{points}), 餘額: {new_balance}")
+                logger.info(f"點數已增加: {user_id} (+{points}), 餘額: {new_balance}")
                 return True
 
             except Exception as e:
                 session.rollback()
-                print(f"❌ 增加點數失敗: {str(e)}")
+                logger.exception(f"增加點數失敗: {user_id}")
                 return False
 
     def deduct_points(self, user_id, points, description=None, feature_type=None):
         """扣除點數：同時寫 public.transactions（管道）與 grandpa_yin.usage_logs（細節）"""
         if points <= 0:
-            print(f"❌ 點數必須為正數: {points}")
+            logger.error(f"點數必須為正數: {points}")
             return False
 
         with get_session() as session:
             try:
                 account = _resolve_account(session, user_id, for_update=True)
                 if not account:
-                    print(f"❌ 會員不存在: {user_id}")
+                    logger.error(f"會員不存在: {user_id}")
                     return False
 
                 if account.points_balance < points:
-                    print(f"❌ 點數不足: {user_id}, 需要 {points}, 目前 {account.points_balance}")
+                    logger.info(f"點數不足: {user_id}, 需要 {points}, 目前 {account.points_balance}")
                     return False
 
                 account.points_balance -= points
@@ -173,25 +176,25 @@ class MemberService:
                 ))
 
                 session.commit()
-                print(f"✅ 點數已扣除: {user_id} (-{points}), 餘額: {new_balance}")
+                logger.info(f"點數已扣除: {user_id} (-{points}), 餘額: {new_balance}")
                 return True
 
             except Exception as e:
                 session.rollback()
-                print(f"❌ 扣除點數失敗: {str(e)}")
+                logger.exception(f"扣除點數失敗: {user_id}")
                 return False
 
     def refund_points(self, user_id, points, feature_type=None, reason=None):
         """功能處理失敗時退還點數，並在 usage_logs 留下 failed 記錄供稽核"""
         if points <= 0:
-            print(f"❌ 點數必須為正數: {points}")
+            logger.error(f"點數必須為正數: {points}")
             return False
 
         with get_session() as session:
             try:
                 account = _resolve_account(session, user_id, for_update=True)
                 if not account:
-                    print(f"❌ 會員不存在: {user_id}")
+                    logger.error(f"會員不存在: {user_id}")
                     return False
 
                 account.points_balance += points
@@ -214,12 +217,12 @@ class MemberService:
                 ))
 
                 session.commit()
-                print(f"✅ 點數已退還: {user_id} (+{points}), 餘額: {new_balance}")
+                logger.info(f"點數已退還: {user_id} (+{points}), 餘額: {new_balance}")
                 return True
 
             except Exception as e:
                 session.rollback()
-                print(f"❌ 退還點數失敗: {str(e)}")
+                logger.exception(f"退還點數失敗: {user_id}")
                 return False
 
     def get_point_history(self, user_id, limit=10):

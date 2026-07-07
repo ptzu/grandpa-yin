@@ -1,5 +1,8 @@
 from typing import List, Optional
+from app_logger import get_logger
 from .base_feature import BaseFeature
+
+logger = get_logger("registry")
 
 
 class FeatureRegistry:
@@ -19,7 +22,7 @@ class FeatureRegistry:
     def register(self, feature: BaseFeature):
         """註冊功能"""
         self.features.append(feature)
-        print(f"已註冊功能: {feature.name}")
+        logger.info(f"已註冊功能: {feature.name}")
     
     def get_feature_by_name(self, name: str) -> Optional[BaseFeature]:
         """根據名稱獲取功能"""
@@ -48,7 +51,7 @@ class FeatureRegistry:
         if is_global_command:
             for feature in self.features:
                 if feature.can_handle(message, user_id):
-                    print(f"全局命令路由到功能: {feature.name}")
+                    logger.debug(f"全局命令路由到功能: {feature.name}")
                     return feature.handle_text(event)
         
         # 2. 如果不是全局命令，首先檢查用戶是否有特定功能的狀態
@@ -58,17 +61,17 @@ class FeatureRegistry:
             feature_name = user_state.get("feature")
             feature = self.get_feature_by_name(feature_name)
             if feature and feature.can_handle(message, user_id, user_state=user_state):
-                print(f"根據用戶狀態路由到功能: {feature_name}")
+                logger.debug(f"根據用戶狀態路由到功能: {feature_name}")
                 return feature.handle_text(event)
 
         # 3. 如果沒有狀態或狀態中的功能無法處理，則尋找能處理此訊息的功能
         for feature in self.features:
             if feature.can_handle(message, user_id, user_state=user_state):
-                print(f"路由到功能: {feature.name}")
+                logger.debug(f"路由到功能: {feature.name}")
                 return feature.handle_text(event)
         
         # 4. 沒有功能能處理此訊息
-        print(f"沒有功能能處理訊息: {message}")
+        logger.info(f"沒有功能能處理訊息: {message}")
         return None
     
     def route_image_message(self, event: dict) -> dict:
@@ -89,17 +92,17 @@ class FeatureRegistry:
             feature_name = user_state.get("feature")
             feature = self.get_feature_by_name(feature_name)
             if feature:
-                print(f"根據用戶狀態路由圖片到功能: {feature_name}")
+                logger.debug(f"根據用戶狀態路由圖片到功能: {feature_name}")
                 return feature.handle_image(event)
         
         # 2. 如果沒有狀態，則尋找能處理圖片的功能（先判斷、再執行，避免重複執行）
         for feature in self.features:
             if feature.can_handle_image(user_id):
-                print(f"路由圖片到功能: {feature.name}")
+                logger.debug(f"路由圖片到功能: {feature.name}")
                 return feature.handle_image(event)
 
         # 3. 沒有功能能處理此圖片
-        print(f"沒有功能能處理圖片訊息")
+        logger.info("沒有功能能處理圖片訊息")
         return None
     
     def _is_global_command(self, message: str) -> bool:

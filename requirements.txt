@@ -6,3 +6,4 @@ gunicorn==21.2.0
 python-dotenv
 SQLAlchemy==2.0.41
 psycopg2-binary
+sentry-sdk[flask]

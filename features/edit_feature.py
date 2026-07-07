@@ -2,9 +2,12 @@ import os
 import base64
 import requests
 import replicate
+from app_logger import get_logger
 from task_executor import submit_image_task
 from .base_feature import BaseFeature, _UNSET
 from linebot.models import TextSendMessage, ImageSendMessage
+
+logger = get_logger("edit")
 
 
 class EditFeature(BaseFeature):
@@ -66,10 +69,8 @@ class EditFeature(BaseFeature):
             if self.is_user_in_state(user_id, "waiting_description"):
                 return self._handle_description_input(reply_token, user_name, user_id, message, event)
                 
-        except Exception as e:
-            print(f"❌ EditFeature handle_text error: {str(e)}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            logger.exception("EditFeature handle_text error")
         
         return None
     
@@ -84,12 +85,12 @@ class EditFeature(BaseFeature):
         message_id = self.get_message_id(event)
         user_name = self.get_user_name(user_id)
         
-        print(f"收到圖片訊息，用戶 ID：{user_id}")
+        logger.info(f"收到圖片訊息，用戶 ID：{user_id}")
         
         # 檢查用戶是否在等待圖片狀態
         if not self.is_user_in_state(user_id, "waiting_image"):
             # 用戶沒有確認圖片編輯，靜默處理，不發送任何回覆
-            print(f"用戶 {user_id} 上傳圖片但未確認圖片編輯功能，靜默處理")
+            logger.debug(f"用戶 {user_id} 上傳圖片但未確認圖片編輯功能，靜默處理")
             return None
 
         # 會員系統不可用時拒絕服務，避免免費放送處理額度
@@ -121,13 +122,14 @@ class EditFeature(BaseFeature):
             )
             return result
 
-        except Exception as e:
+        except Exception:
             # 發生錯誤時清除狀態
+            logger.exception(f"圖片編輯 handle_image 失敗: {user_id}")
             self.clear_user_state(user_id)
-            
+
             result = self.publisher.process_reply_message(
                 reply_token,
-                TextSendMessage(text=f"處理圖片時發生錯誤: {str(e)}"),
+                TextSendMessage(text="處理圖片時發生錯誤，請稍後再試 🙏"),
                 user_id,
                 event  # 傳遞 event 以支援群組聊天
             )
@@ -208,7 +210,7 @@ class EditFeature(BaseFeature):
             try:
                 self._start_loading_animation(user_id)
             except Exception as e:
-                print(f"發送載入動畫失敗: {str(e)}")
+                logger.warning(f"發送載入動畫失敗: {str(e)}")
 
             # 3. 在背景執行圖片編輯處理
             def process_image_async():
@@ -216,7 +218,7 @@ class EditFeature(BaseFeature):
                     # 重新獲取狀態以確保數據完整
                     current_state = self.get_user_state(user_id)
                     if not current_state:
-                        print(f"用戶 {user_id} 狀態已清除，停止處理")
+                        logger.info(f"用戶 {user_id} 狀態已清除，停止處理")
                         return
 
                     image_data = current_state.get("data", {}).get("image_data")
@@ -250,7 +252,7 @@ class EditFeature(BaseFeature):
                         output_url = self._edit_image(image_bytes, description)
                     except Exception as e:
                         # 處理失敗 → 退點並留下 failed 稽核記錄
-                        print(f"❌ 圖片編輯處理失敗，退還點數: {str(e)}")
+                        logger.exception(f"圖片編輯處理失敗，退還點數: {user_id}")
                         self.member_service.refund_points(
                             user_id, self.required_points,
                             feature_type='edit', reason=str(e)
@@ -274,7 +276,7 @@ class EditFeature(BaseFeature):
                 finally:
                     # 處理完成後清除用戶狀態
                     self.clear_user_state(user_id)
-                    print(f"用戶 {user_id} 圖片編輯處理完成，狀態已重置")
+                    logger.info(f"用戶 {user_id} 圖片編輯處理完成，狀態已重置")
 
             # 提交到有界執行緒池；容量滿時優雅降級
             if not submit_image_task(process_image_async):
@@ -285,18 +287,19 @@ class EditFeature(BaseFeature):
                     event
                 )
 
-        except Exception as e:
+        except Exception:
             # 發生錯誤時也要清除狀態
+            logger.exception(f"圖片編輯描述處理失敗: {user_id}")
             self.clear_user_state(user_id)
-            
+
             result = self.publisher.process_reply_message(
                 reply_token,
-                TextSendMessage(text=f"發生錯誤: {str(e)}"),
+                TextSendMessage(text="處理過程發生錯誤，請稍後再試 🙏"),
                 user_id,
                 event  # 傳遞 event 以支援群組聊天
             )
             return result
-        
+
         return None
     
     def _start_loading_animation(self, user_id: str):
@@ -321,26 +324,23 @@ class EditFeature(BaseFeature):
             response = requests.post(url, headers=headers, json=data, timeout=(3, 10))
             
             if response.status_code == 200:
-                print(f"載入動畫已啟動，用戶: {user_id}")
+                logger.debug(f"載入動畫已啟動，用戶: {user_id}")
             else:
-                print(f"載入動畫啟動失敗: {response.status_code} - {response.text}")
+                logger.warning(f"載入動畫啟動失敗: {response.status_code} - {response.text}")
                 
         except Exception as e:
-            print(f"啟動載入動畫時發生錯誤: {str(e)}")
+            logger.warning(f"啟動載入動畫時發生錯誤: {str(e)}")
     
     def _edit_image(self, image_bytes: bytes, description: str) -> str:
         """呼叫 Replicate 圖片編輯 API"""
         try:
-            print(f"🔍 開始處理圖片編輯...")
-            print(f"📊 圖片大小: {len(image_bytes)} bytes")
-            print(f"📝 編輯描述: {description}")
+            logger.debug(f"開始處理圖片編輯，圖片大小: {len(image_bytes)} bytes，描述: {description}")
             
             # 將 bytes 轉換為 base64 格式
             image_b64 = base64.b64encode(image_bytes).decode('utf-8')
             image_data_url = f"data:image/jpeg;base64,{image_b64}"
             
-            print(f"🤖 呼叫模型: {self.replicate_model}")
-            print("📡 正在發送請求到 Replicate API...")
+            logger.debug(f"呼叫模型: {self.replicate_model}")
             
             # 使用 Replicate Python SDK 呼叫 google/nano-banana 模型
             # 根據官方範例使用正確的參數格式
@@ -353,8 +353,7 @@ class EditFeature(BaseFeature):
                 }
             )
             
-            print(f"✅ API 回應類型: {type(output)}")
-            print(f"📄 API 回應內容: {output}")
+            logger.debug(f"API 回應類型: {type(output)}, 內容: {output}")
             
             if output:
                 # 處理 FileOutput 物件，獲取 URL 字串
@@ -363,14 +362,14 @@ class EditFeature(BaseFeature):
                     if hasattr(output, 'url'):
                         if callable(getattr(output, 'url')):
                             result_url = output.url()
-                            print(f"🎯 回傳 URL (使用 .url()): {result_url}")
+                            logger.debug(f"回傳 URL (使用 .url()): {result_url}")
                             return result_url
                         else:
                             result_url = output.url
-                            print(f"🎯 回傳 URL (使用 .url 屬性): {result_url}")
+                            logger.debug(f"回傳 URL (使用 .url 屬性): {result_url}")
                             return result_url
                     elif isinstance(output, str):
-                        print(f"🎯 回傳字串 URL: {output}")
+                        logger.debug(f"回傳字串 URL: {output}")
                         return output
                     elif isinstance(output, list) and len(output) > 0:
                         first_item = output[0]
@@ -379,29 +378,28 @@ class EditFeature(BaseFeature):
                                 result_url = first_item.url()
                             else:
                                 result_url = first_item.url
-                            print(f"🎯 回傳列表第一個元素的 URL: {result_url}")
+                            logger.debug(f"回傳列表第一個元素的 URL: {result_url}")
                             return result_url
                         else:
-                            print(f"🎯 回傳列表第一個元素 (轉字串): {str(first_item)}")
+                            logger.debug(f"回傳列表第一個元素 (轉字串): {str(first_item)}")
                             return str(first_item)
                     else:
                         # 嘗試轉換為字串
                         result_str = str(output)
-                        print(f"🎯 回傳轉換後字串: {result_str}")
+                        logger.debug(f"回傳轉換後字串: {result_str}")
                         return result_str
                 except Exception as url_error:
-                    print(f"❌ 獲取 URL 失敗: {url_error}")
+                    logger.warning(f"獲取 URL 失敗: {url_error}")
                     # 備用方案：轉換為字串
                     result_str = str(output)
-                    print(f"🔄 備用方案，回傳字串: {result_str}")
+                    logger.debug(f"備用方案，回傳字串: {result_str}")
                     return result_str
             else:
-                print("❌ API 沒有回傳任何結果")
+                logger.error("API 沒有回傳任何結果")
                 raise Exception("API 沒有回傳結果")
                 
         except Exception as e:
-            print(f"❌ Replicate API 錯誤詳細信息: {str(e)}")
-            print(f"❌ 錯誤類型: {type(e)}")
+            logger.error(f"Replicate API 錯誤: {str(e)} (類型: {type(e)})")
             
             if "Insufficient credit" in str(e):
                 raise Exception("Replicate 點數不足，請前往 https://replicate.com/account/billing#billing 購買點數")

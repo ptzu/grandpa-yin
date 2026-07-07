@@ -1,5 +1,8 @@
-from features.base_feature import BaseFeature
 from datetime import datetime
+from app_logger import get_logger
+from features.base_feature import BaseFeature
+
+logger = get_logger("member")
 
 
 class MemberFeature(BaseFeature):
@@ -92,10 +95,8 @@ class MemberFeature(BaseFeature):
             self.publisher.reply_text(reply_token, response, user_id, event)
             return "OK"
             
-        except Exception as e:
-            print(f"❌ 查詢點數失敗: {str(e)}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            logger.exception(f"查詢點數失敗: {user_id}")
             self.publisher.reply_text(reply_token, "❌ 查詢失敗，請稍後再試", user_id, event)
             return "OK"
     
@@ -158,10 +159,8 @@ class MemberFeature(BaseFeature):
             self.publisher.reply_text(reply_token, response, user_id, event)
             return "OK"
             
-        except Exception as e:
-            print(f"❌ 查詢交易記錄失敗: {str(e)}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            logger.exception(f"查詢交易記錄失敗: {user_id}")
             self.publisher.reply_text(reply_token, "❌ 查詢失敗，請稍後再試", user_id, event)
             return "OK"
     
@@ -196,7 +195,7 @@ class MemberFeature(BaseFeature):
                     created_at = datetime.fromisoformat(created_at_str)
                     created_at_str = created_at.strftime("%Y/%m/%d %H:%M")
                 except Exception as e:
-                    print(f"⚠️ 日期格式化失敗: {str(e)}")
+                    logger.warning(f"日期格式化失敗: {str(e)}")
                     created_at_str = "未知"
             else:
                 created_at_str = "未知"
@@ -215,10 +214,8 @@ class MemberFeature(BaseFeature):
             self.publisher.reply_text(reply_token, response, user_id, event)
             return "OK"
             
-        except Exception as e:
-            print(f"❌ 查詢會員資訊失敗: {str(e)}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            logger.exception(f"查詢會員資訊失敗: {user_id}")
             self.publisher.reply_text(reply_token, "❌ 查詢失敗，請稍後再試", user_id, event)
             return "OK"
 

@@ -1,5 +1,6 @@
 import os
 import threading
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
 
 # 圖片處理共用的有界執行緒池：外部 API 變慢時最多堆積有限的工作，
@@ -22,9 +23,12 @@ def submit_image_task(fn) -> bool:
     if not _capacity.acquire(blocking=False):
         return False
 
+    # 複製當前 context，讓背景工作繼承 request_id 等 ContextVar
+    ctx = contextvars.copy_context()
+
     def _wrapped():
         try:
-            fn()
+            ctx.run(fn)
         finally:
             _capacity.release()
 

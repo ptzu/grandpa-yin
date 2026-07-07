@@ -1,6 +1,9 @@
 import os
+from app_logger import get_logger
 from .base_feature import BaseFeature
 from linebot.models import TextSendMessage, QuickReply, QuickReplyButton, MessageAction
+
+logger = get_logger("menu")
 
 
 class MenuFeature(BaseFeature):
@@ -30,10 +33,8 @@ class MenuFeature(BaseFeature):
             elif message == "其他功能":
                 return self._handle_other_features(reply_token, user_name, user_id, event)
                 
-        except Exception as e:
-            print(f"❌ MenuFeature handle_text error: {str(e)}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            logger.exception("MenuFeature handle_text error")
         
         return None
     

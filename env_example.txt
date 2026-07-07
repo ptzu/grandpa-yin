@@ -9,6 +9,10 @@ REPLICATE_API_TOKEN=your_replicate_api_token_here
 PORT=5000
 # 本地開發時設為 True 可自動重載，生產環境請保持 False
 FLASK_DEBUG=False
+# 日誌層級：DEBUG / INFO / WARNING / ERROR（預設 INFO）
+LOG_LEVEL=INFO
+# Sentry 錯誤追蹤（可選，留空則不啟用）
+SENTRY_DSN=
 
 # Database 資料庫設定（會員系統）
 DATABASE_URL=postgresql://user:password@host:port/dbname
