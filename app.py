@@ -99,7 +99,7 @@ def init():
         member_service = None
 
     # 6. 註冊所有功能
-    feature_registry = FeatureRegistry()
+    feature_registry = FeatureRegistry(user_state_manager)
     feature_registry.register(MenuFeature(line_bot_api, publisher, user_state_manager, member_service))
     feature_registry.register(ColorizeFeature(line_bot_api, publisher, user_state_manager, member_service))
     feature_registry.register(EditFeature(line_bot_api, publisher, user_state_manager, member_service))

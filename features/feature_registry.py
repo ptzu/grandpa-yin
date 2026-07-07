@@ -26,8 +26,9 @@ def is_global_command(message: str) -> bool:
 class FeatureRegistry:
     """功能註冊表，負責路由訊息到對應的功能處理器"""
 
-    def __init__(self):
+    def __init__(self, state_manager):
         self.features: List[BaseFeature] = []
+        self.state_manager = state_manager
     
     def register(self, feature: BaseFeature):
         """註冊功能"""
@@ -120,10 +121,8 @@ class FeatureRegistry:
         return is_global_command(message)
     
     def _get_user_state(self, user_id: str) -> dict:
-        """獲取用戶狀態（需要從第一個功能中獲取 state_manager）"""
-        if self.features:
-            return self.features[0].get_user_state(user_id)
-        return None
+        """獲取用戶狀態"""
+        return self.state_manager.get_state(user_id)
     
     def get_all_features(self) -> List[BaseFeature]:
         """獲取所有註冊的功能"""
