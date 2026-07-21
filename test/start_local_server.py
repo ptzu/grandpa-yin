@@ -5,6 +5,7 @@
 """
 
 import os
+import sys
 import subprocess
 import time
 import requests
@@ -64,7 +65,7 @@ class LocalTestStarter:
         
         try:
             self.flask_process = subprocess.Popen(
-                ["python", "../app.py"],
+                [sys.executable, "../app.py"],
                 # 移除輸出重定向，讓 Flask 輸出直接顯示
                 # stdout=subprocess.PIPE,
                 # stderr=subprocess.PIPE,
@@ -95,11 +96,18 @@ class LocalTestStarter:
     
     def start_ngrok(self):
         """啟動 ngrok 隧道"""
-        print("🌐 啟動 ngrok 隧道...")
-        
+        ngrok_domain = os.getenv("NGROK_DOMAIN")
+        cmd = ["ngrok", "http"]
+        if ngrok_domain:
+            cmd.append(f"--url={ngrok_domain}")
+            print(f"🌐 啟動 ngrok 隧道（固定網域: {ngrok_domain}）...")
+        else:
+            print("🌐 啟動 ngrok 隧道（隨機網址；設定 NGROK_DOMAIN 可固定網址）...")
+        cmd.append("5000")
+
         try:
             self.ngrok_process = subprocess.Popen(
-                ["ngrok", "http", "5000"],
+                cmd,
                 # 移除輸出重定向，讓 ngrok 輸出直接顯示
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -131,23 +139,53 @@ class LocalTestStarter:
             return False
     
     def setup_line_webhook(self):
-        """設定 LINE Webhook URL"""
+        """透過 LINE API 自動設定並驗證 Webhook URL"""
         if not self.webhook_url:
             print("❌ 沒有可用的 ngrok URL")
             return False
-        
+
         webhook_endpoint = f"{self.webhook_url}/webhook"
         print(f"🔗 Webhook URL: {webhook_endpoint}")
-        
-        print("\n📋 請在 LINE Developers Console 中設定以下 Webhook URL:")
-        print(f"   {webhook_endpoint}")
-        print("\n設定步驟:")
-        print("1. 前往 https://developers.line.biz/")
-        print("2. 選擇你的 Messaging API 頻道")
-        print("3. 在 Messaging API 設定中，將 Webhook URL 設為上述網址")
-        print("4. 開啟 'Use webhook' 選項")
-        print("5. 儲存設定")
-        
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {os.getenv('CHANNEL_ACCESS_TOKEN')}",
+        }
+
+        try:
+            response = requests.put(
+                "https://api.line.me/v2/bot/channel/webhook/endpoint",
+                headers=headers,
+                json={"endpoint": webhook_endpoint},
+                timeout=10,
+            )
+            if response.status_code != 200:
+                print(f"❌ 自動設定 webhook 失敗: {response.status_code} {response.text}")
+                print("   請確認 CHANNEL_ACCESS_TOKEN 是否為測試 channel 的值")
+                return False
+            print("✅ Webhook URL 已自動設定到 LINE")
+        except requests.exceptions.RequestException as e:
+            print(f"❌ 設定 webhook 時發生連線錯誤: {e}")
+            return False
+
+        # 給 Flask 一點時間確保完全就緒後再測試
+        time.sleep(1)
+        try:
+            test_response = requests.post(
+                "https://api.line.me/v2/bot/channel/webhook/test",
+                headers=headers,
+                json={"endpoint": webhook_endpoint},
+                timeout=15,
+            )
+            result = test_response.json()
+            if result.get("success"):
+                print(f"✅ Webhook 驗證成功（回應狀態碼 {result.get('statusCode')}）")
+            else:
+                print(f"⚠️  Webhook 驗證未通過: {result.get('reason', result)}")
+                print("   （可能 Flask 剛啟動還沒就緒，先傳訊息測試看看，不行再手動重跑）")
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️  無法驗證 webhook（不影響已設定的結果）: {e}")
+
         return True
     
     def run_test(self):
@@ -155,7 +193,7 @@ class LocalTestStarter:
         print("\n🧪 執行測試...")
         
         try:
-            result = subprocess.run(["python", "test_local.py"], text=True)
+            result = subprocess.run([sys.executable, "test_local.py"], text=True)
             return result.returncode == 0
         except Exception as e:
             print(f"❌ 執行測試時發生錯誤: {e}")

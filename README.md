@@ -1,260 +1,116 @@
-# LINE Bot - 圖片彩色化服務
+# 銀爺爺 LINE Bot
 
-一個基於 LINE Bot API 的智能圖片彩色化服務，使用 Replicate AI 模型將黑白照片自動轉換為彩色照片。
+專為長輩設計的 LINE Bot：用 AI 幫黑白老照片上色、依文字描述編輯圖片，並內建點數會員系統。與 Altide 共用一套會員／錢包（見 `log/MEMBER_SYSTEM_README.md`）。
 
-## 🚀 功能特色
+技術架構：**Flask + gunicorn**（Railway 部署）· **Supabase PostgreSQL** · **LINE Messaging API** · **Replicate**（AI 模型）· **Sentry**（錯誤追蹤）。
 
-- **📸 圖片彩色化**: 使用 AI 技術將黑白照片自動彩色化
-- **🤖 智能對話**: 支援文字對話和功能選單
-- **⚡ 即時處理**: 背景非同步處理，不阻塞用戶體驗
-- **🔧 模組化設計**: 易於擴展新功能
-- **👤 用戶狀態管理**: 支援多用戶同時使用，狀態持久化儲存
+## 功能
 
-## 📋 系統需求
+| 功能 | 觸發指令 | 說明 | 點數 |
+|---|---|---|---|
+| 功能選單 | `!功能`、`使用說明` | Quick Reply 選單，引導其餘功能 | — |
+| 圖片彩色化 | `圖片彩色化` | 上傳黑白照 → AI 自動上色 | `COLORIZE_COST`（預設 10）|
+| 圖片編輯 | `圖片編輯` | 先傳圖、再輸入文字描述 → AI 依描述編輯 | `EDIT_COST`（預設 5）|
+| 會員／點數 | `會員`、`點數`、`歷史` | 查詢點數餘額與交易記錄 | — |
 
-- Python 3.7+
-- LINE Developers 帳號
-- Replicate API 帳號
-- PostgreSQL 資料庫 (Supabase 推薦)
-- ngrok (本地測試用)
+- 新用戶加好友自動建立會員並贈送 `WELCOME_POINTS`（預設 50）點。
+- 圖片以背景非同步處理，不阻塞使用者；多用戶對話狀態持久化於 `grandpa_yin.bot_sessions`。
 
-## 🛠️ 安裝與設定
+## 開啟測試環境
 
-### 1. 克隆專案
+完整說明見 [`log/TEST_ENVIRONMENT_GUIDE.md`](log/TEST_ENVIRONMENT_GUIDE.md)。快速版（本地開發，零雲端資料庫）：
 
-```bash
-git clone <repository-url>
-cd LineBot
-```
-
-### 2. 安裝依賴
+### 1. 安裝依賴
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt      # Python 套件
+brew install --cask ngrok            # 對外隧道（LINE webhook 需要公網入口）
 ```
 
-### 3. 環境變數設定
-
-複製 `env_example.txt` 為 `.env` 並填入必要的 API 金鑰：
+### 2. 設定 `.env`
 
 ```bash
 cp env_example.txt .env
 ```
 
-編輯 `.env` 檔案：
+填入**測試用** LINE channel 的 `CHANNEL_ACCESS_TOKEN` / `CHANNEL_SECRET`（勿用正式 channel）、`REPLICATE_API_TOKEN`，以及資料庫（見下）。`.env` 已被 `.gitignore` 排除。
 
-```env
-# LINE Bot 設定
-CHANNEL_ACCESS_TOKEN=your_line_channel_access_token_here
-CHANNEL_SECRET=your_line_channel_secret_here
+### 3. 建本地測試資料庫
 
-# Replicate API 設定
-REPLICATE_API_TOKEN=your_replicate_api_token_here
-
-# 資料庫設定 (Supabase 推薦)
-DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-ID].supabase.co:5432/postgres
-
-# 應用程式設定
-PORT=5000
-```
-
-### 4. 取得 API 金鑰
-
-#### LINE Bot 設定
-1. 前往 [LINE Developers Console](https://developers.line.biz/)
-2. 建立新的 Messaging API 頻道
-3. 取得 Channel Access Token 和 Channel Secret
-
-#### Replicate API 設定
-1. 前往 [Replicate](https://replicate.com/)
-2. 註冊帳號並取得 API Token
-3. 確保帳號有足夠的點數進行圖片處理
-
-#### 資料庫設定 (Supabase 推薦)
-1. 前往 [Supabase](https://supabase.com/)
-2. 建立新專案
-3. 在專案設定中取得資料庫連線字串
-4. 複製連線字串到 `.env` 檔案的 `DATABASE_URL`
-
-## 🚀 啟動服務
-
-### 資料庫初始化
-
-資料庫 schema 由 Supabase migrations 管理（見 `altide-landing-page/supabase/migrations/`），無需在本專案建表。
-
-輔助腳本：
+用本機 Postgres，一鍵照 model 建表：
 
 ```bash
-# 手動新增會員 / 加點（互動式）
-python scripts/add_member.py
-
-# 清理超過 24 小時的舊用戶狀態
-python scripts/cleanup_user_states.py 24
+createdb grandpa_yin_dev
+# .env 設 DATABASE_URL=postgresql://<user>@localhost:5432/grandpa_yin_dev
+python test/setup_test_db.py
 ```
 
-### 本地開發環境
+`setup_test_db.py` 內建安全鎖：只允許 `DATABASE_URL` 指向本機，避免誤建到線上。
+> 註：本地表由 SQLAlchemy model 生成，不含線上的 CHECK / RLS / trigger，足夠功能測試；要與線上完全一致請改用 Supabase staging 專案並套用 `altide-landing-page/supabase/schema.sql`。
 
-#### 方法一：使用自動啟動腳本（推薦）
+### 4. ngrok（一次性設定）
+
+```bash
+ngrok config add-authtoken <your-token>   # dashboard.ngrok.com 取得
+```
+
+（可選）到 ngrok Dashboard → Domains 領一個固定網域，填進 `.env` 的 `NGROK_DOMAIN`，webhook 網址就永久不變。
+
+### 5. 一鍵啟動
 
 ```bash
 cd test
 python start_local_server.py
 ```
 
-此腳本會自動：
-- 檢查環境變數和依賴
-- 啟動 Flask 應用程式
-- 啟動 ngrok 隧道
-- 提供 webhook URL 設定指引
+腳本會自動啟動 Flask（改碼熱重載）→ 啟動 ngrok（有 `NGROK_DOMAIN` 就用固定網址）→ **自動呼叫 LINE API 設定並驗證 webhook**，不需手動進 Console 填。
 
-#### 方法二：手動啟動
+### 6. 首次 LINE Console 設定（只需一次）
 
-1. **啟動 Flask 應用程式**
-```bash
-python app.py
-```
+Webhook **網址**由腳本自動設定，但以下幾項是 Console 專屬、API 改不了，第一次要在測試 channel 的 Messaging API 頁手動處理：
 
-2. **啟動 ngrok 隧道**（新終端機）
-```bash
-ngrok http 5000
-```
+- **開啟「Use webhook」** — API 只能設網址，這個「是否真的把訊息送到 webhook」的開關要手動打開（打開後就一直有效）。
+- **關閉「Auto-reply messages」** — 否則 LINE 官方罐頭回覆會插嘴。
+- **加測試 Bot 為好友** — 掃 Console 的 QR code，才能對它傳訊息測試。
 
-3. **設定 LINE Webhook**
-   - 複製 ngrok 提供的 HTTPS URL
-   - 在 LINE Developers Console 中設定 Webhook URL
-   - 格式：`https://your-ngrok-url.ngrok.io/webhook`
+設定完後，日常只要跑第 5 步即可，網址每次自動更新，不必再碰 Console。
+> 未設 `NGROK_DOMAIN` 時 ngrok 為隨機網址，重跑腳本會變（腳本會自動重設 webhook）；設了固定網域則永久不變。
 
-### 生產環境部署
+## 部署（Railway）
 
-#### Railway 部署
+1. 在 [Railway](https://railway.app/) 建專案並連結此 repo。
+2. 於 Variables 設定環境變數：`CHANNEL_ACCESS_TOKEN`、`CHANNEL_SECRET`、`REPLICATE_API_TOKEN`、`DATABASE_URL`（Supabase 連線字串），可選 `COLORIZE_COST` / `EDIT_COST` / `WELCOME_POINTS`、`SENTRY_DSN` / `SENTRY_ENVIRONMENT`。
+3. Push 到 `main` 即自動部署（啟動指令見 `Procfile`：`gunicorn app:app -w 2 --threads 8`）。
+4. 將 Railway 網域設為 LINE Webhook：`https://<your-app>.up.railway.app/webhook`。
 
-1. 在 [Railway](https://railway.app/) 建立專案並連結此 Git repository
-2. 在 Railway 專案的 Variables 設定環境變數：
-   - `CHANNEL_ACCESS_TOKEN`
-   - `CHANNEL_SECRET`
-   - `REPLICATE_API_TOKEN`
-   - `DATABASE_URL`（Supabase 連線字串）
-   - `COLORIZE_COST`、`EDIT_COST`、`WELCOME_POINTS`（可選）
-3. Push 到 main 分支即自動部署（啟動指令見 `Procfile`）
-4. 將 Railway 提供的網域設定為 LINE Webhook URL：`https://your-app.up.railway.app/webhook`
+資料庫 schema 由 `altide-landing-page/supabase/schema.sql` 管理（含 `auth.*` / `storage.*` 依賴，故僅適用於 Supabase）。
 
-## 📱 使用方式
-
-### 基本指令
-
-- `!功能` - 開啟功能選單
-- `圖片彩色化` - 啟動圖片彩色化功能
-- `使用說明` - 查看詳細使用說明
-
-### 圖片彩色化流程
-
-1. 輸入 `!功能` 開啟選單
-2. 選擇「📸 圖片彩色化」
-3. 確認要進行彩色化處理
-4. 上傳黑白照片
-5. 等待 AI 處理完成
-6. 接收彩色化結果
-
-## 🏗️ 專案結構
-
-```
-grandpa-yin/
-├── app.py                      # 主應用程式入口（webhook、初始化）
-├── message_publisher.py        # 訊息發送器
-├── user_state_manager.py       # 用戶狀態管理（bot_sessions）
-├── features/                   # 功能模組
-│   ├── base_feature.py         # 功能基礎類別
-│   ├── feature_registry.py     # 功能註冊表（訊息路由）
-│   ├── menu_feature.py         # 選單功能
-│   ├── colorize_feature.py     # 圖片彩色化功能
-│   ├── edit_feature.py         # 圖片編輯功能
-│   └── member_feature.py       # 會員查詢功能
-├── services/
-│   └── member_service.py       # 會員服務層（點數、交易）
-├── models/                     # SQLAlchemy 資料模型
-│   ├── database.py             # 連線與 session 管理
-│   ├── account.py              # 帳號（共用點數錢包）
-│   ├── linked_identity.py      # 第三方身分綁定
-│   ├── grandpa_yin_profile.py  # 長輩專屬設定
-│   ├── bot_session.py          # 對話狀態
-│   ├── transaction.py          # 點數交易記錄
-│   └── usage_log.py            # 功能使用記錄
-├── scripts/                    # 管理腳本
-│   ├── add_member.py           # 手動新增會員
-│   └── cleanup_user_states.py  # 清理舊狀態
-├── test/                       # 本地測試
-│   ├── start_local_server.py   # 本地測試啟動器（含 ngrok）
-│   └── test_local.py           # 模擬 LINE 訊息測試
-├── log/                        # 設計文件
-├── requirements.txt            # Python 依賴
-├── Procfile                    # 部署啟動指令（gunicorn）
-└── env_example.txt             # 環境變數範例
-```
-
-## 🔧 開發指南
-
-### 新增功能
-
-1. 繼承 `BaseFeature` 類別
-2. 實作必要的方法：
-   - `name`: 功能名稱
-   - `can_handle()`: 判斷是否能處理訊息
-   - `handle_text()`: 處理文字訊息
-   - `handle_image()`: 處理圖片訊息（可選）
-
-3. 在 `app.py` 中註冊新功能
-
-```python
-# 在 init() 函數中
-new_feature = NewFeature(line_bot_api, publisher, user_state_manager)
-feature_registry.register(new_feature)
-```
-
-### 測試
-
-執行本地測試：
+## 管理腳本
 
 ```bash
-cd test
-python test_local.py
+python scripts/add_member.py                 # 互動式新增會員／加點
+python scripts/cleanup_user_states.py 24     # 清理超過 24 小時的舊對話狀態
+python scripts/trace_user.py <名字>          # 追查某會員的點數異動（排查用）
 ```
 
-## 🐛 故障排除
+## 專案結構
 
-### 常見問題
+```
+app.py                    主入口：webhook、初始化、訊息路由
+features/                 功能模組（繼承 base_feature.BaseFeature）
+  feature_registry.py     訊息路由與功能註冊
+  menu / colorize / edit / member_feature.py
+  replicate_feature.py    Replicate 模型呼叫共用邏輯
+services/
+  member_service.py       會員服務層（點數、交易）
+  storage_service.py      Supabase Storage（圖片暫存）
+models/                   SQLAlchemy 模型（public.* 共用層 + grandpa_yin.* 產品層）
+scripts/                  管理／排查腳本
+test/                     start_local_server.py（一鍵啟動）、setup_test_db.py、test_local.py
+log/                      設計文件與維運手冊
+Procfile                  gunicorn 啟動指令
+```
 
-1. **環境變數未設定**
-   - 確認 `.env` 檔案存在且包含所有必要的變數
-   - 檢查變數名稱是否正確
+## 新增功能
 
-2. **ngrok 連接失敗**
-   - 確認 ngrok 已正確安裝
-   - 檢查防火牆設定
-
-3. **Replicate API 錯誤**
-   - 確認 API Token 正確
-   - 檢查帳號點數是否充足
-
-4. **LINE Webhook 驗證失敗**
-   - 確認 Webhook URL 格式正確
-   - 檢查 Channel Secret 是否正確
-
-### 日誌查看
-
-應用程式會輸出詳細的日誌資訊，包括：
-- 初始化狀態
-- 訊息處理過程
-- 錯誤訊息和堆疊追蹤
-
-## 📄 授權
-
-此專案採用 MIT 授權條款。
-
-## 🤝 貢獻
-
-歡迎提交 Issue 和 Pull Request！
-
-## 📞 支援
-
-如有問題，請建立 Issue 或聯繫開發團隊。
-
+繼承 `features/base_feature.py` 的 `BaseFeature`，實作 `name` / `can_handle` 與訊息處理方法，再於 `app.py` 初始化區以 `feature_registry.register(...)` 註冊即可。

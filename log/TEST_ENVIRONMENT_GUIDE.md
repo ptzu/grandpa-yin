@@ -109,7 +109,7 @@ Body: {"endpoint": "https://.../webhook"}
 
 **建議**：只想快點解決 → 做 A；想完全自動 → A + B 一起（URL 固定又自動設定，跑一次腳本全搞定）。
 
-> 註：以上兩個腳本改動尚未實作，需要時再動手。目前 `start_local_server.py` 是「抓到 URL 後印出、手動填」的流程。
+> 已實作：`start_local_server.py` 現在會讀取 `NGROK_DOMAIN`（有設就用固定網址，沒設則隨機）並自動呼叫 LINE 的 webhook endpoint API 設定＋驗證，不再需要手動進 Console 填。
 
 ---
 

@@ -163,6 +163,13 @@ def webhook():
 
     signature = request.headers.get("X-Line-Signature")
     body = request.get_data(as_text=True)
+
+    # 沒帶簽章的一定不是 LINE（掃描器、監控、探測），直接擋掉。
+    # 否則 None 簽章會讓 SDK 拋 AttributeError → 走到 500 並灌入 Sentry。
+    if not signature:
+        logger.warning("缺少 X-Line-Signature，拒絕非 LINE 請求")
+        abort(400)
+
     try:
         # 驗證簽名
         handler.parser.parse(body, signature)
