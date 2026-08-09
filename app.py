@@ -2,6 +2,12 @@ import os
 import time
 import uuid
 import threading
+from dotenv import load_dotenv
+
+# Load local .env so `python app.py` works for local dev; on Railway there is no
+# .env file, so this is a harmless no-op and platform Variables are used as-is.
+load_dotenv()
+
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
