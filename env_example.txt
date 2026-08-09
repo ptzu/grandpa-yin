@@ -6,11 +6,18 @@ CHANNEL_SECRET=your_line_channel_secret_here
 REPLICATE_API_TOKEN=your_replicate_api_token_here
 
 # 應用程式設定
+# 部署模式：platform（整合進 Altide 共用帳號層，讀寫 public.accounts/transactions）
+# 或 standalone（獨立運作，身份與點數放在 grandpa_yin.subjects/wallet_transactions，
+# 不需要 Altide）。未設定時預設 platform，維持既有線上行為。
+DEPLOY_MODE=platform
 PORT=5000
 # 本地開發時設為 True 可自動重載，生產環境請保持 False
 FLASK_DEBUG=False
 # 日誌層級：DEBUG / INFO / WARNING / ERROR（預設 INFO）
 LOG_LEVEL=INFO
+# 圖片處理併發：背景執行緒池同時處理張數 / 排隊上限（預設 4 / 8）
+IMAGE_WORKERS=4
+IMAGE_QUEUE_LIMIT=8
 # Sentry 錯誤追蹤（可選，留空則不啟用）
 SENTRY_DSN=
 # Sentry 環境標籤，用來區分 production / staging（預設 production）
@@ -32,3 +39,10 @@ EDIT_COST=5
 
 # Member Registration 會員註冊設定
 WELCOME_POINTS=50
+
+# 本地開發：ngrok 固定網址（領了 static domain 再填，webhook 網址就永久不變；
+# 未設定時 start_local_server.py 用隨機網址並自動重設 webhook）
+# NGROK_DOMAIN=your-name.ngrok-free.app
+
+# 註：RAILWAY_GIT_COMMIT_SHA 由 Railway 部署時自動注入（用於錯誤追蹤標記版本），
+# 本地不需設定。

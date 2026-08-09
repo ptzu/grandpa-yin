@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, func
+from sqlalchemy import Column, Integer, String, Text, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from models.database import Base
 
@@ -10,7 +10,8 @@ class UsageLog(Base):
     __table_args__ = {'schema': 'grandpa_yin'}
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    account_id = Column(UUID(as_uuid=True), ForeignKey('accounts.id'), nullable=False, index=True)
+    # Logical reference to the owning subject; no cross-schema FK (see BotSession).
+    account_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     feature_type = Column(Text, nullable=False)  # 'colorize' | 'edit' | ...
     points_deducted = Column(Integer, nullable=False, default=0)
     status = Column(String(20), nullable=False)  # 'processing' | 'completed' | 'failed'

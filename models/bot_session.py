@@ -1,14 +1,18 @@
-from sqlalchemy import Column, Text, DateTime, ForeignKey, func
+from sqlalchemy import Column, Text, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from models.database import Base
 
 
 class BotSession(Base):
-    """LINE Bot 對話狀態機（一對一對應 accounts）"""
+    """LINE Bot 對話狀態機（一對一對應一個 subject/account）"""
     __tablename__ = 'bot_sessions'
     __table_args__ = {'schema': 'grandpa_yin'}
 
-    account_id = Column(UUID(as_uuid=True), ForeignKey('accounts.id'), primary_key=True)
+    # Logical reference to the owning subject (platform: accounts.id /
+    # standalone: grandpa_yin.subjects.id). No cross-schema FK here so the
+    # product can build without Altide; integrity is enforced at the app layer
+    # and, in platform mode, by an optional integration migration.
+    account_id = Column(UUID(as_uuid=True), primary_key=True)
     # 複合字串格式 "feature:state"（例：'colorize:waiting'）
     current_state = Column(Text, nullable=False)
     state_metadata = Column(JSONB, nullable=False, default=dict)
