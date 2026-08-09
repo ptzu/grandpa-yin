@@ -4,44 +4,17 @@ from sqlalchemy import delete
 
 from app_logger import get_logger
 from models.database import get_session
-from models.account import Account
-from models.linked_identity import LinkedIdentity
 from models.bot_session import BotSession
+from services.account_backend import get_account_backend
 
 logger = get_logger("user_state")
-
-
-LINE_PROVIDER = 'line'
-
-
-def _resolve_account(session, line_uid):
-    identity = (
-        session.query(LinkedIdentity)
-        .filter_by(provider=LINE_PROVIDER, provider_uid=line_uid)
-        .first()
-    )
-    if not identity:
-        return None
-    return session.query(Account).filter_by(id=identity.account_id).first()
-
-
-def _resolve_or_create_account(session, line_uid):
-    account = _resolve_account(session, line_uid)
-    if account:
-        return account
-    # 自動建 shadow account（follow event 若遲到也不會炸）
-    account = Account(points_balance=0, is_admin=False)
-    session.add(account)
-    session.flush()
-    session.add(LinkedIdentity(account_id=account.id, provider=LINE_PROVIDER, provider_uid=line_uid))
-    return account
 
 
 class UserStateManager:
     """用戶狀態管理器（使用 grandpa_yin.bot_sessions）"""
 
-    def __init__(self):
-        pass
+    def __init__(self, backend=None):
+        self._backend = backend or get_account_backend()
 
     def set_state(self, user_id: str, state: Dict[str, Any]):
         """設定用戶狀態
@@ -55,16 +28,16 @@ class UserStateManager:
 
         try:
             with get_session() as session:
-                account = _resolve_or_create_account(session, user_id)
+                subject = self._backend.get_or_create(session, user_id)
 
-                existing = session.query(BotSession).filter_by(account_id=account.id).first()
+                existing = session.query(BotSession).filter_by(account_id=subject.id).first()
                 if existing:
                     existing.current_state = current_state
                     existing.state_metadata = data
                     logger.debug(f"用戶 {user_id} 狀態已更新: {state}")
                 else:
                     session.add(BotSession(
-                        account_id=account.id,
+                        account_id=subject.id,
                         current_state=current_state,
                         state_metadata=data,
                     ))
@@ -79,10 +52,10 @@ class UserStateManager:
         """獲取用戶狀態；無狀態回傳 None"""
         try:
             with get_session() as session:
-                account = _resolve_account(session, user_id)
-                if not account:
+                subject = self._backend.resolve(session, user_id)
+                if not subject:
                     return None
-                bot_session = session.query(BotSession).filter_by(account_id=account.id).first()
+                bot_session = session.query(BotSession).filter_by(account_id=subject.id).first()
                 if not bot_session:
                     return None
                 return {
@@ -98,12 +71,12 @@ class UserStateManager:
         """清除用戶狀態"""
         try:
             with get_session() as session:
-                account = _resolve_account(session, user_id)
-                if not account:
+                subject = self._backend.resolve(session, user_id)
+                if not subject:
                     logger.debug(f"用戶 {user_id} 沒有 account，略過清除")
                     return
 
-                bot_session = session.query(BotSession).filter_by(account_id=account.id).first()
+                bot_session = session.query(BotSession).filter_by(account_id=subject.id).first()
                 if bot_session:
                     old_state = {
                         "feature": bot_session.feature,
@@ -123,19 +96,19 @@ class UserStateManager:
         """獲取所有用戶狀態（回傳以 LINE UID 為 key 的 dict，給 debug/admin 用）"""
         try:
             with get_session() as session:
-                rows = (
-                    session.query(BotSession, LinkedIdentity)
-                    .join(LinkedIdentity, LinkedIdentity.account_id == BotSession.account_id)
-                    .filter(LinkedIdentity.provider == LINE_PROVIDER)
-                    .all()
+                sessions = session.query(BotSession).all()
+                # subject_id -> LINE UID reverse map, resolved by the active backend
+                uid_map = self._backend.provider_uid_map(
+                    session, [bs.account_id for bs in sessions]
                 )
                 return {
-                    identity.provider_uid: {
+                    uid_map[bs.account_id]: {
                         "feature": bs.feature,
                         "state": bs.state,
                         "data": bs.state_metadata,
                     }
-                    for bs, identity in rows
+                    for bs in sessions
+                    if bs.account_id in uid_map
                 }
         except Exception as e:
             logger.exception("獲取所有狀態失敗")

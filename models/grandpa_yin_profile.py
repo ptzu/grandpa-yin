@@ -1,14 +1,15 @@
-from sqlalchemy import Column, String, Text, Boolean, DateTime, ForeignKey, func
+from sqlalchemy import Column, String, Text, Boolean, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from models.database import Base
 
 
 class GrandpaYinProfile(Base):
-    """銀爺爺長輩專屬設定（一對一擴充 accounts）"""
+    """銀爺爺長輩專屬設定（一對一擴充一個 subject/account）"""
     __tablename__ = 'user_profiles'
     __table_args__ = {'schema': 'grandpa_yin'}
 
-    account_id = Column(UUID(as_uuid=True), ForeignKey('accounts.id'), primary_key=True)
+    # Logical reference to the owning subject; no cross-schema FK (see BotSession).
+    account_id = Column(UUID(as_uuid=True), primary_key=True)
     preferred_nickname = Column(Text, nullable=True)
     is_tutorial_completed = Column(Boolean, nullable=False, default=False)
     display_name = Column(Text, nullable=True)

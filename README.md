@@ -83,6 +83,20 @@ Webhook **網址**由腳本自動設定，但以下幾項是 Console 專屬、AP
 3. Push 到 `main` 即自動部署（啟動指令見 `Procfile`：`gunicorn app:app -w 2 --threads 8`）。
 4. 將 Railway 網域設為 LINE Webhook：`https://<your-app>.up.railway.app/webhook`。
 
+### 部署模式：Platform / Standalone
+
+本服務可以兩種模式運作，由環境變數 `DEPLOY_MODE` 決定（未設定時預設 `platform`）：
+
+| | `platform`（整合進 Altide） | `standalone`（獨立） |
+|---|---|---|
+| 身份來源 | Altide `public.linked_identities` → `accounts` | 自有 `grandpa_yin.subjects` |
+| 點數/交易 | Altide `public.accounts.points_balance` / `transactions` | 自有 `grandpa_yin.wallet_transactions` |
+| 依賴 Altide | 是（需先有 `public.*` 共用層） | 否（只需 `grandpa_yin.*`，可完全獨立建起） |
+
+切換點集中在 `services/account_backend.py`（`AccountBackend` port + 兩個 adapter）；業務邏輯（`member_service` / `user_state_manager`）只認 port，不直接碰帳號表。所以同一套程式碼能在有無 Altide 的環境各自運作。
+
+> `standalone` 讓本產品能單獨開發、測試、demo；日後要接回 Altide 只需把 `DEPLOY_MODE` 設回 `platform`，並補上跨 schema 外鍵（見下方整合說明），不必改業務邏輯。
+
 ### 資料庫 schema 與自動 migration
 
 schema 分兩層、各自管理：
