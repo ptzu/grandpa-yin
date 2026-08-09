@@ -68,6 +68,18 @@ def main() -> None:
     print(f"✅ 已建立 {len(table_names)} 張表：")
     for name in table_names:
         print(f"   - {name}")
+
+    # 表由 create_all 一次建齊（含共用 public.*），再把 grandpa_yin 的 Alembic
+    # 版本標記到 head，讓本地 DB 與 migration 一致：日後改 model → 產生 migration →
+    # `alembic upgrade head` 只套差異。
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    from alembic.config import Config
+    from alembic import command
+
+    alembic_cfg = Config(os.path.join(repo_root, "alembic.ini"))
+    command.stamp(alembic_cfg, "head")
+    print("🏷️  已將 grandpa_yin 的 Alembic 版本標記到 head")
+
     print("\n🎉 本地測試資料庫已就緒，可以啟動服務了。")
 
 

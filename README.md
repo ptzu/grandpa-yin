@@ -83,7 +83,22 @@ Webhook **網址**由腳本自動設定，但以下幾項是 Console 專屬、AP
 3. Push 到 `main` 即自動部署（啟動指令見 `Procfile`：`gunicorn app:app -w 2 --threads 8`）。
 4. 將 Railway 網域設為 LINE Webhook：`https://<your-app>.up.railway.app/webhook`。
 
-資料庫 schema 由 `altide-landing-page/supabase/schema.sql` 管理（含 `auth.*` / `storage.*` 依賴，故僅適用於 Supabase）。
+### 資料庫 schema 與自動 migration
+
+schema 分兩層、各自管理：
+
+- **共用層 `public.*`**（accounts / transactions / linked_identities）由 Altide 的 `altide-landing-page/supabase/schema.sql` 管理（含 `auth.*` / `storage.*` 依賴，僅適用於 Supabase）。本專案**不碰**。
+- **產品層 `grandpa_yin.*`**（bot_sessions / usage_logs / user_profiles）由本專案的 **Alembic** 管理，migration 檔在 `alembic/versions/`。
+
+每次部署，Railway 的 `preDeployCommand`（見 `railway.json`）會自動執行 `alembic upgrade head`，把 `grandpa_yin.*` 的 schema 更新到最新；失敗則中止部署（不會帶著壞 schema 上線）。
+
+**改動流程**：改 `models/*.py` → `alembic revision --autogenerate -m "描述"` → 檢視產生的 migration → commit → push。部署時自動套用。
+
+> **首次導入（線上 DB 已有 grandpa_yin.* 表時，只需做一次）**：因為表早已由 `schema.sql` 建好、但還沒有 Alembic 版本記錄，第一次啟用前要先把現況標記為 baseline，否則 `upgrade` 會嘗試重建已存在的表而失敗：
+> ```bash
+> DATABASE_URL=<線上連線字串> alembic stamp head
+> ```
+> 標記後，之後的部署才會只套用「新的」migration。
 
 ## 管理腳本
 
