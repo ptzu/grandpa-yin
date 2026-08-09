@@ -1,8 +1,17 @@
 # 銀爺爺 LINE Bot
 
-專為長輩設計的 LINE Bot：用 AI 幫黑白老照片上色、依文字描述編輯圖片，並內建點數會員系統。與 Altide 共用一套會員／錢包（見 `log/MEMBER_SYSTEM_README.md`）。
+專為長輩設計的 LINE Bot：用 AI 幫黑白老照片上色、依文字描述編輯圖片，並內建點數會員系統。可獨立運作（standalone），也可整合進 Altide 共用一套會員／錢包（platform）——由 `DEPLOY_MODE` 切換。
 
 技術架構：**Flask + gunicorn**（Railway 部署）· **Supabase PostgreSQL** · **LINE Messaging API** · **Replicate**（AI 模型）· **Sentry**（錯誤追蹤）。
+
+## 文件
+
+| 文件 | 內容 |
+|---|---|
+| [部署](docs/DEPLOYMENT.md) | 上線步驟、環境變數、Alembic 自動 migration、營運與事故處理 |
+| [測試環境](docs/TEST_ENVIRONMENT.md) | 本地 standalone / 整合測試、環境變數、本地資料庫與伺服器 |
+| [開發日誌](docs/DEVELOPMENT_LOG.md) | 重要架構決策與里程碑編年 |
+| [系統健檢](docs/HEALTH_CHECK.md) | 架構健康度、修復進度、待補強清單 |
 
 ## 功能
 
@@ -18,7 +27,7 @@
 
 ## 開啟測試環境
 
-完整說明見 [`log/TEST_ENVIRONMENT_GUIDE.md`](log/TEST_ENVIRONMENT_GUIDE.md)。快速版（本地開發，零雲端資料庫）：
+完整說明見 [測試環境文件](docs/TEST_ENVIRONMENT.md)。快速版（本地開發，零雲端資料庫）：
 
 ### 1. 安裝依賴
 
