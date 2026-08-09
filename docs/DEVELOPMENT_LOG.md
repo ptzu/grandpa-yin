@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-08-09 — Phase 5：Alembic migration 拆分（解耦後的正規部署）
+
+把 migration 補到與解耦後的 model 一致，讓兩種模式都能走 `alembic upgrade head`：
+
+- **改寫 baseline `a6e5ccf71d56`**：三張產品表拿掉跨 schema 外鍵，`account_id` 為純 UUID（線上是 stamp 過的、body 未執行，改它安全）。
+- **`f1a2b3c4d5e6` add standalone identity and wallet**：把 `subjects` / `wallet_transactions` 納入 Alembic，standalone 不再只能靠 `create_all`。
+- **`a7b8c9d0e1f2` platform integration account fk**：冪等且 mode-aware——`public.accounts` 不存在（standalone）就跳過；已有 FK（schema.sql 建的）也偵測後跳過；否則補上 `grandpa_yin.* → public.accounts` 外鍵。單一線性鏈在兩種模式都安全。
+
+**驗證**：standalone 空庫 upgrade → 5 表、0 FK、整合層跳過；platform（有 accounts）→ 補 3 FK；模擬 schema.sql 既有 FK → 偵測跳過不重複；`alembic check` 回報 model↔migration 無 diff。
+
+---
+
 ## 2026-08-09 — grandpa_yin 與 Altide 解耦（standalone / platform 雙模式）
 
 **背景**：`grandpa_yin.*` 產品表對 Altide 的 `public.accounts` 有跨 schema 外鍵，且業務邏輯直接讀寫 `accounts.points_balance` / `transactions` / `linked_identities`——導致本產品**無法脫離 Altide 獨立建置、測試、demo**。
@@ -25,7 +37,7 @@
 
 **驗證**：standalone 在**零 Altide 表**下跑完整流程通過；platform（建齊所有表）回歸通過。
 
-**待辦（下一階段）**：Alembic migration 拆分（核心無 FK + standalone 表 + platform 整合 migration 補 FK），讓 standalone 也能走 `alembic upgrade`。
+**下一階段**：Alembic migration 拆分——已於同日完成，見上方 Phase 5。
 
 ---
 

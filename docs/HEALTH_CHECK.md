@@ -59,8 +59,8 @@
 
 **目前限制與注意**：
 
-1. 🟡 **standalone 尚未接 Alembic**——目前 standalone 靠 `create_all` / `setup_test_db` 建表，還沒有「核心 migration（無跨 schema FK）+ platform 整合 migration（補 FK）」的拆分。要讓 standalone 也走 `alembic upgrade` 需補這步。
-2. 🟡 **移除 ORM 跨 schema 外鍵後，platform 模式的參照完整性暫時只靠 app 層**——線上 DB 的 FK 仍由 `schema.sql` 保有；但未來全新 platform 環境需要「整合 migration」補回 DB 層 FK，否則失去資料庫層保護。
+1. ✅ **standalone 已接 Alembic**（Phase 5 完成）——核心 migration 無跨 schema FK、`f1a2b3c4d5e6` 建 standalone 表、`a7b8c9d0e1f2` 為 platform 冪等補 FK。standalone 與 platform 皆可 `alembic upgrade head`。`setup_test_db.py` 的 `create_all` 仍保留作為本地快速路徑。
+2. ✅ **platform 的資料庫層 FK 由整合 migration 補回**（Phase 5）——`a7b8c9d0e1f2` 在 `public.accounts` 存在且 FK 未建時補上；既有環境（schema.sql 已建 FK）會被偵測跳過。
 3. 🟢 **`scripts/trace_user.py` 仍直接查 Altide 表**——platform 專用診斷工具，維持原樣合理；standalone 環境下不適用。
 
 ---

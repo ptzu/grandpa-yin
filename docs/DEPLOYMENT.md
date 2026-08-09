@@ -110,14 +110,17 @@ DATABASE_URL=<線上連線字串> alembic stamp head
 
 ### 全新資料庫的初始化順序（外鍵依賴）
 
-`grandpa_yin.*` 在 platform 模式對 `public.accounts` 有外鍵，**必須先有共用層再跑 Alembic**：
+自 Phase 5 起，baseline migration **不再帶跨 schema 外鍵**，改由整合 migration
+`a7b8c9d0e1f2` 冪等補上（只在 `public.accounts` 存在時）。所以：
 
-```
-1. 先套用 Altide 共用層 → altide-landing-page/supabase/schema.sql   （建 public.accounts…）
-2. 再跑本專案 Alembic     → alembic upgrade head                    （建 grandpa_yin.*）
-```
+- **standalone**：`alembic upgrade head` 直接建起 `grandpa_yin.*`，無任何 Altide 依賴。
+- **platform（全新環境）**：仍建議**先套用共用層再跑 Alembic**，順序如下：
+  ```
+  1. 先套用 Altide 共用層 → altide-landing-page/supabase/schema.sql   （建 public.accounts…）
+  2. 再跑本專案 Alembic     → alembic upgrade head                    （建 grandpa_yin.* 並補 FK）
+  ```
 
-順序反了，第 2 步會因外鍵找不到 `accounts` 而失敗。standalone 模式無此依賴。
+> 與過去不同：**順序反了不會再讓 `upgrade` 失敗**（baseline 無 FK，表照樣建起）；只是整合 migration 當下因 `public.accounts` 不存在而**跳過補 FK**，且該 migration 一旦標記完成就不會自己重跑。若真的先跑了 Alembic、之後才有 accounts，補 FK 的方式是手動 `alembic downgrade f1a2b3c4d5e6 && alembic upgrade head`，或直接手動 `ALTER TABLE … ADD FOREIGN KEY`。因此 platform 全新環境**仍以「先 schema.sql 再 Alembic」為準**。
 
 ---
 
