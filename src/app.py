@@ -13,8 +13,10 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from src.core.app_logger import get_logger, request_id_var
 from src.core.error_tracking import init_sentry, set_request_context
+from src.services.billing import BillingService
 from src.services.message_publisher import MessagePublisher
 from src.services.line_client import LineClient
+from src.services.replicate_client import ReplicateClient
 from src.services.user_state_manager import UserStateManager
 from src.features.context import FeatureContext
 from src.features.feature_registry import FeatureRegistry
@@ -122,6 +124,8 @@ def init():
         line=line_client,
         publisher=publisher,
         state_manager=user_state_manager,
+        billing=BillingService(member_service, publisher),
+        replicate=ReplicateClient(),
         member_service=member_service,
         storage_service=storage_service,
     )

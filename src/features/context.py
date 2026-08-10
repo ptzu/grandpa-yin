@@ -11,8 +11,10 @@ Lives in features/ rather than core/ because it names service types, and
 from dataclasses import dataclass
 from typing import Optional
 
+from src.services.billing import BillingService
 from src.services.line_client import LineClient
 from src.services.message_publisher import MessagePublisher
+from src.services.replicate_client import ReplicateClient
 from src.services.user_state_manager import UserStateManager
 
 
@@ -28,5 +30,7 @@ class FeatureContext:
     line: LineClient
     publisher: MessagePublisher
     state_manager: UserStateManager
+    billing: BillingService
+    replicate: ReplicateClient
     member_service: Optional[object] = None
     storage_service: Optional[object] = None

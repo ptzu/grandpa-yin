@@ -16,8 +16,8 @@ os.environ.setdefault("EDIT_COST", "5")
 
 import pytest
 
-from src.features import replicate_feature as replicate_module
-from src.features.replicate_feature import ReplicateImageFeature
+from src.services import billing as billing_module
+from src.services.billing import BillingService
 from src.features.context import FeatureContext
 from src.features.feature_registry import FeatureRegistry
 from src.features.menu_feature import MenuFeature
@@ -115,6 +115,27 @@ class FakeLineClient:
         self.loading_animations.append((user_id, seconds))
 
 
+class FakeReplicateClient:
+    """Stands in for services.replicate_client.ReplicateClient — never leaves the process.
+
+    `fail_with` makes the model call raise, to exercise the refund path.
+    """
+
+    def __init__(self, fail_with=None):
+        self.calls = []
+        self.fail_with = fail_with
+
+    def run(self, model, input_dict):
+        self.calls.append({"model": model, "input": input_dict})
+        if self.fail_with:
+            raise self.fail_with
+        return FAKE_OUTPUT_URL
+
+    @staticmethod
+    def image_to_data_url(image_bytes):
+        return "data:image/jpeg;base64,ZmFrZQ=="
+
+
 class FakeStorage:
     def __init__(self):
         self.objects = {}
@@ -207,12 +228,13 @@ def image_event(user_id=USER, source_type="user"):
 class Env:
     """A fully wired bot with every external system faked out."""
 
-    def __init__(self, registry, publisher, state_manager, member_service, storage):
+    def __init__(self, registry, publisher, state_manager, member_service, storage, replicate):
         self.registry = registry
         self.publisher = publisher
         self.state_manager = state_manager
         self.member = member_service
         self.storage = storage
+        self.replicate = replicate
 
     # --- driving the bot ---
 
@@ -255,17 +277,23 @@ class Env:
         return bool(current and current["feature"] == feature and current["state"] == state)
 
 
-def build_env(points=100, with_member_feature=False):
-    """Assemble a registry the same way app.py does (photo_intent registered last)"""
+def build_env(points=100, with_member_feature=False, replicate_fails_with=None):
+    """Assemble a registry the same way app.py does (photo_intent registered last).
+
+    BillingService is the real one — only the systems at the edges are faked.
+    """
     publisher = FakePublisher()
     state_manager = FakeStateManager()
     member_service = FakeMemberService(points)
     storage = FakeStorage()
+    replicate = FakeReplicateClient(fail_with=replicate_fails_with)
 
     ctx = FeatureContext(
         line=FakeLineClient(),
         publisher=publisher,
         state_manager=state_manager,
+        billing=BillingService(member_service, publisher),
+        replicate=replicate,
         member_service=member_service,
         storage_service=storage,
     )
@@ -278,7 +306,7 @@ def build_env(points=100, with_member_feature=False):
         registry.register(MemberFeature(ctx))
     registry.register(PhotoIntentFeature(ctx))
 
-    return Env(registry, publisher, state_manager, member_service, storage)
+    return Env(registry, publisher, state_manager, member_service, storage, replicate)
 
 
 # ------------------------------------------------------------ fixtures
@@ -286,16 +314,13 @@ def build_env(points=100, with_member_feature=False):
 
 @pytest.fixture(autouse=True)
 def offline_externals(monkeypatch):
-    """Run background tasks synchronously and stub out Replicate.
+    """Run billed background tasks synchronously instead of on the thread pool.
 
-    Autouse so no test can accidentally reach the network, and monkeypatch-based
-    so the patches are undone between tests instead of leaking globally.
-    (The loading animation needs no patch — it goes through FakeLineClient.)
+    Everything else reaching outside the process already goes through a fake
+    injected via FeatureContext, so this is the only patch the suite needs.
     """
-    monkeypatch.setattr(replicate_module, "submit_image_task",
+    monkeypatch.setattr(billing_module, "submit_image_task",
                         lambda task: (task(), True)[1])
-    monkeypatch.setattr(ReplicateImageFeature, "run_replicate",
-                        lambda self, input_dict: FAKE_OUTPUT_URL)
 
 
 @pytest.fixture

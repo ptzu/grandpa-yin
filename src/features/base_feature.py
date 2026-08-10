@@ -19,6 +19,8 @@ class BaseFeature(ABC):
         self.line = ctx.line
         self.publisher = ctx.publisher
         self.state_manager = ctx.state_manager
+        self.billing = ctx.billing
+        self.replicate = ctx.replicate
         self.member_service = ctx.member_service
         self.storage_service = ctx.storage_service
         # Set by FeatureRegistry.register(); lets a feature hand off to a sibling
