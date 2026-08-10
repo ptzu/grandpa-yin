@@ -1,3 +1,4 @@
+import base64
 from abc import ABC, abstractmethod
 from linebot import LineBotApi
 from app_logger import get_logger
@@ -12,13 +13,17 @@ _UNSET = object()
 
 class BaseFeature(ABC):
     """所有功能的基礎類別"""
-    
-    def __init__(self, line_bot_api: LineBotApi, publisher: MessagePublisher, state_manager: UserStateManager, member_service=None):
+
+    def __init__(self, line_bot_api: LineBotApi, publisher: MessagePublisher, state_manager: UserStateManager, member_service=None, storage_service=None):
         self.line_bot_api = line_bot_api
         self.publisher = publisher
         self.state_manager = state_manager
         self.member_service = member_service
-    
+        self.storage_service = storage_service
+        # Set by FeatureRegistry.register(); lets a feature hand off to a sibling
+        # (photo_intent -> colorize/edit) without app.py wiring them to each other.
+        self.registry = None
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -145,22 +150,89 @@ class BaseFeature(ABC):
     def get_message_id(self, event: dict) -> str:
         """從 event 中獲取訊息 ID"""
         return event.get('message', {}).get('id', '')
-    
+
+    # ---- 圖片下載與暫存（跨功能共用） ----
+
+    def download_image(self, message_id: str) -> bytes:
+        """從 LINE 下載用戶上傳的圖片"""
+        message_content = self.line_bot_api.get_message_content(message_id)
+        return b''.join(chunk for chunk in message_content.iter_content())
+
+    def stash_image(self, image_bytes: bytes) -> dict:
+        """暫存圖片，回傳可直接放進 user state `data` 的 payload。
+
+        優先放 Supabase Storage（state 只留 object key），未設定時退回
+        base64 內嵌——會讓 JSONB row 膨脹，僅作為不中斷服務的降級路徑。
+        """
+        if self.storage_service and self.storage_service.is_configured():
+            key = self.storage_service.upload_image(image_bytes, prefix=self.name)
+            return {"image_key": key}
+
+        logger.warning("Supabase Storage 未設定，退回以 base64 暫存於 state（建議設定 SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY）")
+        return {"image_data": base64.b64encode(image_bytes).decode('utf-8')}
+
+    @staticmethod
+    def has_stashed_image(state_data: dict) -> bool:
+        """state data 中是否帶有暫存圖片"""
+        state_data = state_data or {}
+        return bool(state_data.get("image_key") or state_data.get("image_data"))
+
+    def load_stashed_image(self, state_data: dict) -> bytes:
+        """取回 stash_image() 暫存的圖片；找不到時回傳 None"""
+        state_data = state_data or {}
+        image_key = state_data.get("image_key")
+        if image_key:
+            return self.storage_service.download_image(image_key)
+
+        image_data = state_data.get("image_data")
+        if image_data:
+            return base64.b64decode(image_data)
+
+        return None
+
+    def discard_stashed_image(self, state_data: dict):
+        """丟棄暫存圖片（用過或取消）；失敗只記 log，不影響主流程"""
+        state_data = state_data or {}
+        image_key = state_data.get("image_key")
+        if image_key and self.storage_service:
+            self.storage_service.delete_image(image_key)
+
     def set_user_state(self, user_id: str, state: str, data: dict = None):
-        """設定用戶狀態"""
-        self.state_manager.set_state(user_id, {
-            "feature": self.name, 
+        """設定用戶狀態；順手清掉被這次轉換取代掉的暫存圖"""
+        replaced = self.state_manager.set_state(user_id, {
+            "feature": self.name,
             "state": state,
             "data": data
         })
-    
+        self._discard_superseded_image(replaced, data)
+
     def get_user_state(self, user_id: str) -> dict:
         """獲取用戶狀態"""
         return self.state_manager.get_state(user_id)
-    
+
     def clear_user_state(self, user_id: str):
-        """清除用戶狀態"""
-        self.state_manager.clear_state(user_id)
+        """清除用戶狀態；順手清掉該狀態引用的暫存圖"""
+        removed = self.state_manager.clear_state(user_id)
+        self._discard_superseded_image(removed, None)
+
+    def _discard_superseded_image(self, previous_data: dict, next_data: dict):
+        """狀態轉換後刪掉不再被任何狀態引用的暫存圖。
+
+        收攏在狀態轉換這一層，而不是散在各功能裡：切換到別的功能、背景任務
+        結束、流程被中斷……所有路徑都會經過 set_user_state / clear_user_state，
+        放這裡才不會有漏網的孤兒物件。同一張圖延用到下一個狀態時不刪。
+        """
+        old_key = (previous_data or {}).get("image_key")
+        if not old_key:
+            return
+        if (next_data or {}).get("image_key") == old_key:
+            return
+
+        try:
+            self.discard_stashed_image({"image_key": old_key})
+        except Exception:
+            # 清理是盡力而為，失敗不能影響主流程；殘留物件由 cleanup_storage.py 兜底
+            logger.warning(f"清理被取代的暫存圖失敗: {old_key}")
     
     def is_user_in_state(self, user_id: str, state: str) -> bool:
         """檢查用戶是否在特定狀態"""

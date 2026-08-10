@@ -18,12 +18,15 @@
 | 功能 | 觸發指令 | 說明 | 點數 |
 |---|---|---|---|
 | 功能選單 | `!功能`、`使用說明` | Quick Reply 選單，引導其餘功能 | — |
+| 照片意圖詢問 | **直接傳照片** | 沒先選功能就上傳的照片由它接住，Quick Reply 問要上色還是修改 | — |
 | 圖片彩色化 | `圖片彩色化` | 上傳黑白照 → AI 自動上色 | `COLORIZE_COST`（預設 10）|
-| 圖片編輯 | `圖片編輯` | 先傳圖、再輸入文字描述 → AI 依描述編輯 | `EDIT_COST`（預設 5）|
+| 圖片編輯 | `圖片編輯` | 傳圖 → 點選（或自行輸入）編輯描述 → 確認後才扣點 | `EDIT_COST`（預設 5）|
 | 會員／點數 | `會員`、`點數`、`歷史` | 查詢點數餘額與交易記錄 | — |
 
 - 新用戶加好友自動建立會員並贈送 `WELCOME_POINTS`（預設 50）點。
 - 圖片以背景非同步處理，不阻塞使用者；多用戶對話狀態持久化於 `grandpa_yin.bot_sessions`。
+- **主要入口是「直接傳照片」**：長輩的心智模型是「處理這張照片」而不是「進入某個功能」。傳統的「先打指令再傳圖」路徑同時保留。
+- 圖片編輯全程可用 Quick Reply 完成（免打字），且**確認之後才扣點**，在那之前可隨時取消或換圖。
 
 ## 開啟測試環境
 
@@ -128,6 +131,8 @@ schema 分兩層、各自管理：
 ```bash
 python scripts/add_member.py                 # 互動式新增會員／加點
 python scripts/cleanup_user_states.py 24     # 清理超過 24 小時的舊對話狀態
+python scripts/cleanup_storage.py            # 試跑：列出 Storage 中的孤兒暫存圖
+python scripts/cleanup_storage.py --apply    # 實際刪除（建議掛 Railway cron 每日執行）
 python scripts/trace_user.py <名字>          # 追查某會員的點數異動（排查用）
 ```
 

@@ -5,6 +5,47 @@
 
 ---
 
+## 2026-08-10 — 圖片流程對長輩友善化（先傳圖 → 選功能）
+
+**背景**：評估「要不要做 LIFF 讓上傳更友善」，結論是**上傳不是痛點**——長輩在 LINE 傳照片已經很熟練，LIFF 的 `<input type=file>` 反而多一層。真正的痛點在對話流程本身：
+
+1. 沒先打功能指令就上傳的照片被**靜默丟棄**（`edit_feature` / `colorize_feature` 的 `handle_image` 直接 return），用戶零回饋。
+2. 編輯描述**必須打字**，對客群是最大門檻。
+3. 描述送出**立刻扣點**，打錯字也照扣，不滿意只能整套重來。
+
+**做法**（都在既有的 Feature Registry + Quick Reply 機制內，不引入前端）：
+
+- **新增 `PhotoIntentFeature`**：圖片路由的 catch-all，接住沒人處理的照片 → 暫存 → Quick Reply 問「上色／修改／取消」→ 用 `accept_handoff()` 把 stash 交棒給真正的功能（不重新上傳）。必須最後註冊。群組聊天不主動搭話。
+- **`route_image_message` 改用 `can_handle_image()` 判斷**：原本只要 state 有 feature 就無條件 dispatch，狀態對不上時會被該 feature 靜默吃掉；現在接不住就往下走 fallback。
+- **編輯描述改 Quick Reply**：五個預設效果 + 「我自己描述」+「取消」，全程免打字。
+- **新增 `waiting_confirm` 階段**：`waiting_image → waiting_description → waiting_confirm → processing`。確認前不扣點，可取消、可換圖、可重新描述（照片保留）。
+- **`_is_other_trigger_command()`**：卡在某功能流程中途時輸入別的功能指令會正確切換，不再被當成編輯描述吃掉。
+- **`download_image` / `stash_image` 系列上移到 `BaseFeature`**：圖片下載與暫存是通用建材，非 Replicate 專屬。
+
+**決策取捨**：不做 LIFF。除了上傳不是痛點外，改用 LIFF 直傳會**失去 LINE 代做的前處理**（HEIC→JPEG、EXIF 旋轉、壓縮），且前端不能持有 service role key、需另開 LINE Login channel、多一條這個 repo 目前沒有的前端部署管線。LIFF 留給「上傳＋預覽＋before/after＋微調重跑」那類聊天介面真的做不到的場景。
+
+**驗證**：新增 `test/test_image_flow.py`——零外部依賴的狀態機測試（fake 掉 DB／LINE／Storage／Replicate），涵蓋完整路徑與取消／換圖／重新描述／點數不足／群組靜默／中途切功能，51 項全通過。這是本 repo 第一支可離線執行、可直接接 CI 的測試。
+
+**接續處理**：暫存圖的孤兒物件清理，見下方同日條目。
+
+---
+
+## 2026-08-10 — Storage 暫存圖清理（孤兒物件）
+
+**背景**：檢討圖片流程時發現，孤兒暫存圖的大宗不是「流程中途切換功能」，而是**用戶傳了照片就不再回覆**——`cleanup_old_states` 24 小時後刪掉 session row，卻不管它引用的圖。這在本次改動之前就一直在發生，`cleanup_user_states.py` 本身就是製造者。Supabase Storage **沒有** S3 那種 lifecycle policy 可設，只能自己掃。
+
+**做法**：兩層。
+
+- **層 1（即時）**——`BaseFeature._discard_superseded_image()`：`set_state` / `clear_state` 改為回傳被覆蓋／被清掉的 state data，`set_user_state` / `clear_user_state` 據此刪掉不再被引用的 `image_key`（同一張圖延用到下個狀態時不刪）。收攏在狀態轉換這一層，而不是讓 feature 互相清理對方的狀態——所有路徑都會經過這兩個入口，沒有漏網。
+- **層 2（兜底）**——`scripts/cleanup_storage.py`：刪「超過 `--hours`（預設 24）**且** 沒有任何存活 `bot_session` 引用」的物件。兩個條件並存讓它與 `cleanup_user_states.py` 的執行順序無關，也不會誤刪流程中用戶的照片。預設試跑，要加 `--apply` 才真的刪。掛 Railway cron 每日執行（需另建 cron service，設定見部署文件）。
+- `StorageService` 補上 `list_folders` / `list_objects`（自動翻頁）與 `delete_images` 批次刪除；`delete_image` 改為冪等——404 視為已達成目標，不再記 warning。
+
+**驗證**：測試從 51 項擴充到 72 項。新增「各種中斷路徑都不留孤兒圖」——走完流程／三種階段取消／連傳三張／換圖／重新描述／中途切功能，八條路徑跑完都斷言 Storage 為空；以及 `parse_timestamp` 對 Supabase 超微秒精度時間戳的解析（Python 3.9 的 `fromisoformat` 吃不下，會靜默讓物件永遠不被清理）。
+
+**尚未完成**：Railway cron service 要在 dashboard 手動建立，程式碼這邊已就緒。
+
+---
+
 ## 2026-08-09 — Phase 5：Alembic migration 拆分（解耦後的正規部署）
 
 把 migration 補到與解耦後的 model 一致，讓兩種模式都能走 `alembic upgrade head`：

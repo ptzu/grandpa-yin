@@ -15,8 +15,8 @@ class ColorizeFeature(ReplicateImageFeature):
     image_waiting_state = "waiting"
     loading_seconds = 30
 
-    def __init__(self, line_bot_api, publisher, state_manager, member_service=None):
-        super().__init__(line_bot_api, publisher, state_manager, member_service)
+    def __init__(self, line_bot_api, publisher, state_manager, member_service=None, storage_service=None):
+        super().__init__(line_bot_api, publisher, state_manager, member_service, storage_service)
         self.required_points = int(os.getenv("COLORIZE_COST", "10"))
 
     @property
@@ -54,13 +54,41 @@ class ColorizeFeature(ReplicateImageFeature):
         if self.reply_maintenance_if_unavailable(reply_token, user_id, event, clear_state=True):
             return None
 
-        user_name = self.get_user_name(user_id)
+        try:
+            image_bytes = self.download_image(message_id)
+        except Exception:
+            logger.exception(f"彩色化下載圖片失敗: {user_id}")
+            self.clear_user_state(user_id)
+            self.publisher.process_reply_message(
+                reply_token,
+                TextSendMessage(text="處理圖片時發生錯誤，請稍後再試 🙏"),
+                user_id,
+                event
+            )
+            return None
 
+        self._start_processing(reply_token, user_id, event, image_bytes)
+        return None
+
+    def begin_from_stash(self, reply_token, user_id, event, stash: dict):
+        """交棒入口：用戶先傳圖、再選「幫我上色」"""
+        try:
+            image_bytes = self.load_stashed_image(stash)
+        finally:
+            # 用過即刪；下載失敗時物件也已無用，一併清掉
+            self.discard_stashed_image(stash)
+
+        if not image_bytes:
+            raise ValueError("stash 中沒有可用的圖片")
+
+        self._start_processing(reply_token, user_id, event, image_bytes)
+
+    def _start_processing(self, reply_token: str, user_id: str, event: dict, image_bytes: bytes):
+        """回覆已收到 → 背景計費處理（兩種入口共用的尾段）"""
+        user_name = self.get_user_name(user_id)
         try:
             # 設定狀態為正在彩色化
             self.set_user_state(user_id, "processing")
-
-            image_bytes = self.download_image(message_id)
 
             self.publisher.process_reply_message(
                 reply_token,
@@ -80,7 +108,7 @@ class ColorizeFeature(ReplicateImageFeature):
             )
 
         except Exception:
-            logger.exception(f"彩色化 handle_image 失敗: {user_id}")
+            logger.exception(f"彩色化處理失敗: {user_id}")
             self.clear_user_state(user_id)
             self.publisher.process_reply_message(
                 reply_token,
@@ -88,8 +116,6 @@ class ColorizeFeature(ReplicateImageFeature):
                 user_id,
                 event
             )
-
-        return None
 
     def _handle_colorize_request(self, reply_token: str, user_id: str, event: dict) -> dict:
         """處理彩色化請求：guard → 設定等待狀態 → 引導上傳"""

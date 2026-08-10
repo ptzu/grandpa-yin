@@ -31,7 +31,9 @@ class FeatureRegistry:
         self.state_manager = state_manager
     
     def register(self, feature: BaseFeature):
-        """註冊功能"""
+        """註冊功能（順序即路由優先序，catch-all 類的功能要最後註冊）"""
+        # 讓功能之間能互相查找（例如 photo_intent 把照片交棒給 colorize/edit）
+        feature.registry = self
         self.features.append(feature)
         logger.info(f"已註冊功能: {feature.name}")
     
@@ -97,22 +99,24 @@ class FeatureRegistry:
         """
         user_id = event.get('source', {}).get('userId', '')
         
-        # 1. 首先檢查用戶是否有特定功能的狀態
+        # 1. 首先檢查用戶是否有特定功能的狀態。
+        #    狀態中的功能「當下」不見得收得了圖（例如圖片編輯已進到等描述階段），
+        #    所以仍要問過 can_handle_image，接不住就往下走，避免圖片被吃掉沒回應。
         user_state = self._get_user_state(user_id)
         if user_state and user_state.get("feature"):
             feature_name = user_state.get("feature")
             feature = self.get_feature_by_name(feature_name)
-            if feature:
+            if feature and feature.can_handle_image(user_id):
                 logger.debug(f"根據用戶狀態路由圖片到功能: {feature_name}")
                 return feature.handle_image(event)
-        
-        # 2. 如果沒有狀態，則尋找能處理圖片的功能（先判斷、再執行，避免重複執行）
+
+        # 2. 尋找能處理圖片的功能（先判斷、再執行，避免重複執行）
         for feature in self.features:
             if feature.can_handle_image(user_id):
                 logger.debug(f"路由圖片到功能: {feature.name}")
                 return feature.handle_image(event)
 
-        # 3. 沒有功能能處理此圖片
+        # 3. 沒有功能能處理此圖片（photo_intent 已註冊時不會走到這裡）
         logger.info("沒有功能能處理圖片訊息")
         return None
     

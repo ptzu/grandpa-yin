@@ -203,5 +203,27 @@ SELECT id, 10, 'silver-grandpa', points_balance, '補償（incident YYYY-MM-DD�
 3. **推送失敗的自動退點**——目前「處理成功但 push 失敗」會白扣點，靠人工補償。
 4. **Supabase connection pooler（6543）**——根治連線池上限。
 5. **`transactions` 加 `source/created_by`**——帳目稽核分辨寫入來源。
-6. **Storage bucket 生命週期清理**——自動刪超過 1 天的暫存圖。
+6. ~~**Storage bucket 生命週期清理**~~——✅ 已完成（2026-08-10），見下方「排程維運」。
 7. **Replicate model ID 改環境變數 + timeout**——換模型免部署、避免 worker 吊死。
+
+### 排程維運（Railway cron）
+
+Supabase Storage **沒有** S3 那種 lifecycle policy 可以在 dashboard 設定，暫存圖的清理要自己排程。
+
+清理分兩層：
+- **即時**——狀態轉換時自動刪掉被取代的暫存圖（`BaseFeature._discard_superseded_image`），涵蓋走完流程、取消、換圖、中途切功能。
+- **兜底**——`scripts/cleanup_storage.py` 掃 bucket，刪「超過 24 小時 **且** 沒有任何存活 `bot_session` 引用」的物件。負責 crash、重新部署打斷、用戶棄坑這類即時清理接不到的情況。
+
+在 Railway 加一個 cron service（與 web service 同一個 repo）：
+
+| 設定 | 值 |
+|---|---|
+| Start Command | `python scripts/cleanup_storage.py --apply` |
+| Cron Schedule | `0 18 * * *`（UTC，約台灣時間凌晨 2 點） |
+| 環境變數 | 與 web service 相同（至少要 `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`） |
+
+> ⚠️ 別把 cron 設在主 web service 上——cron service 執行完必須結束，web service 要常駐。
+>
+> 首次上線先不加 `--apply` 手動跑一次，確認盤點結果合理再排程。腳本的判定條件同時檢查「夠舊」和「沒被引用」，所以與 `cleanup_user_states.py` 的執行順序無關，也不會誤刪正在流程中的用戶照片。
+
+對話狀態的清理（`scripts/cleanup_user_states.py 24`）可以掛在同一個 cron service，排在 storage 清理之前或之後都可以。

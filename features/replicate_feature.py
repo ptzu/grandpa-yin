@@ -43,8 +43,23 @@ class ReplicateImageFeature(BaseFeature):
             return True
         if is_global_command(message):
             return False
+        # 別的功能的觸發指令不該被本功能的狀態吃掉（例如卡在「圖片編輯」
+        # 流程中途時輸入「圖片彩色化」，應該切過去而不是被當成編輯描述）
+        if self._is_other_trigger_command(message):
+            return False
         state = self.resolve_user_state(user_id, user_state)
         return bool(state and state.get("feature") == self.name)
+
+    def _is_other_trigger_command(self, message: str) -> bool:
+        """訊息是否為其他已註冊功能的觸發指令"""
+        if not self.registry:
+            return False
+        for feature in self.registry.get_all_features():
+            if feature is self:
+                continue
+            if getattr(feature, "trigger_command", None) == message:
+                return True
+        return False
 
     def can_handle_image(self, user_id: str) -> bool:
         """在等待圖片狀態時才處理圖片"""
@@ -86,12 +101,29 @@ class ReplicateImageFeature(BaseFeature):
         )
         return True
 
-    # ---- 共用建材 ----
+    # ---- 交棒入口（用戶先傳圖、後選功能） ----
 
-    def download_image(self, message_id: str) -> bytes:
-        """從 LINE 下載用戶上傳的圖片"""
-        message_content = self.line_bot_api.get_message_content(message_id)
-        return b''.join(chunk for chunk in message_content.iter_content())
+    def accept_handoff(self, reply_token, user_id, event, stash: dict) -> bool:
+        """接手一張在選功能之前就上傳的照片（由 PhotoIntentFeature 交棒）。
+
+        跑完與正常入口相同的 guard 後委派給 begin_from_stash()。回傳 False
+        代表 guard 擋下、未接手，呼叫端需自行清理 stash 與狀態。
+        """
+        if self.reply_maintenance_if_unavailable(reply_token, user_id, event):
+            return False
+
+        user_name = self.get_user_name(user_id)
+        if self.reply_if_insufficient_points(reply_token, user_name, user_id, event):
+            return False
+
+        self.begin_from_stash(reply_token, user_id, event, stash)
+        return True
+
+    def begin_from_stash(self, reply_token, user_id, event, stash: dict):
+        """以暫存的圖片開始本功能的流程（guard 已由 accept_handoff 跑過）"""
+        raise NotImplementedError
+
+    # ---- 共用建材 ----
 
     def start_loading_animation(self, user_id: str):
         """發送 LINE 載入動畫；失敗不影響主流程"""

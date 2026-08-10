@@ -13,6 +13,20 @@
 
 ---
 
+## 〇、離線測試（零依賴，先跑這個）
+
+改動圖片流程／狀態機後，先跑這支：不需要資料庫、LINE channel、Supabase、Replicate，全部以 fake 取代，直接驅動 `FeatureRegistry` 的路由。
+
+```bash
+python3 test/test_image_flow.py
+```
+
+涵蓋：先傳圖問意圖 → 交棒 → 選描述 → 確認扣點的完整路徑，以及取消／換圖／重新描述／點數不足／群組靜默／流程中途切功能等岔路。全通過會印 `結果：51/51 通過`，任一失敗以非 0 結束（可直接接 CI）。
+
+下面幾章講的是需要真實外部資源的整合測試。
+
+---
+
 ## 二、選一種測試環境
 
 | | 做法 A：本地 standalone（最快） | 做法 B：本地 + 測試 Supabase | 做法 C：Railway 常駐 staging |

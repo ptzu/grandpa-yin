@@ -16,9 +16,13 @@ class UserStateManager:
     def __init__(self, backend=None):
         self._backend = backend or get_account_backend()
 
-    def set_state(self, user_id: str, state: Dict[str, Any]):
+    def set_state(self, user_id: str, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """設定用戶狀態
         state 格式：{"feature": "colorize", "state": "waiting", "data": {...}}
+
+        Returns:
+            被覆蓋掉的舊 state data（沒有舊狀態時為 None）。呼叫端據此清理
+            不再被引用的外部資源，例如暫存在 Storage 的圖片。
         """
         feature = state.get("feature")
         state_name = state.get("state")
@@ -32,10 +36,13 @@ class UserStateManager:
 
                 existing = session.query(BotSession).filter_by(account_id=subject.id).first()
                 if existing:
+                    # 覆蓋前先留一份，讓呼叫端能清理舊狀態引用的資源
+                    replaced = dict(existing.state_metadata or {})
                     existing.current_state = current_state
                     existing.state_metadata = data
                     logger.debug(f"用戶 {user_id} 狀態已更新: {state}")
                 else:
+                    replaced = None
                     session.add(BotSession(
                         account_id=subject.id,
                         current_state=current_state,
@@ -44,6 +51,7 @@ class UserStateManager:
                     logger.debug(f"用戶 {user_id} 狀態已建立: {state}")
 
                 session.commit()
+                return replaced
         except Exception as e:
             logger.exception(f"設定用戶 {user_id} 狀態失敗")
             raise e
@@ -67,14 +75,18 @@ class UserStateManager:
             logger.exception(f"獲取用戶 {user_id} 狀態失敗")
             return None
 
-    def clear_state(self, user_id: str):
-        """清除用戶狀態"""
+    def clear_state(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """清除用戶狀態
+
+        Returns:
+            被清掉的 state data（原本就沒有狀態時為 None），語意同 set_state。
+        """
         try:
             with get_session() as session:
                 subject = self._backend.resolve(session, user_id)
                 if not subject:
                     logger.debug(f"用戶 {user_id} 沒有 account，略過清除")
-                    return
+                    return None
 
                 bot_session = session.query(BotSession).filter_by(account_id=subject.id).first()
                 if bot_session:
@@ -83,11 +95,14 @@ class UserStateManager:
                         "state": bot_session.state,
                         "data": bot_session.state_metadata,
                     }
+                    removed = dict(bot_session.state_metadata or {})
                     session.delete(bot_session)
                     session.commit()
                     logger.debug(f"用戶 {user_id} 狀態已清除 (原狀態: {old_state})")
-                else:
-                    logger.debug(f"用戶 {user_id} 沒有狀態需要清除")
+                    return removed
+
+                logger.debug(f"用戶 {user_id} 沒有狀態需要清除")
+                return None
         except Exception as e:
             logger.exception(f"清除用戶 {user_id} 狀態失敗")
             raise e

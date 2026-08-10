@@ -20,6 +20,7 @@ from features.menu_feature import MenuFeature
 from features.colorize_feature import ColorizeFeature
 from features.edit_feature import EditFeature
 from features.member_feature import MemberFeature
+from features.photo_intent_feature import PhotoIntentFeature
 from models.database import init_database
 from services.member_service import MemberService
 from services.storage_service import StorageService
@@ -114,13 +115,17 @@ def init():
 
     # 7. 註冊所有功能
     feature_registry = FeatureRegistry(user_state_manager)
-    feature_registry.register(MenuFeature(line_bot_api, publisher, user_state_manager, member_service))
-    feature_registry.register(ColorizeFeature(line_bot_api, publisher, user_state_manager, member_service))
+    feature_registry.register(MenuFeature(line_bot_api, publisher, user_state_manager, member_service, storage_service))
+    feature_registry.register(ColorizeFeature(line_bot_api, publisher, user_state_manager, member_service, storage_service))
     feature_registry.register(EditFeature(line_bot_api, publisher, user_state_manager, member_service, storage_service))
 
     # 註冊會員功能（如果會員服務可用）
     if member_service:
-        feature_registry.register(MemberFeature(line_bot_api, publisher, user_state_manager, member_service))
+        feature_registry.register(MemberFeature(line_bot_api, publisher, user_state_manager, member_service, storage_service))
+
+    # 圖片路由的 catch-all：沒先選功能就上傳的照片由它接住並詢問意圖。
+    # 必須最後註冊，否則會搶在 colorize / edit 之前接走圖片。
+    feature_registry.register(PhotoIntentFeature(line_bot_api, publisher, user_state_manager, member_service, storage_service))
 
     feature_names = [f.name for f in feature_registry.get_all_features()]
     logger.info(f"已註冊 {len(feature_names)} 個功能: {', '.join(feature_names)}")
@@ -303,6 +308,7 @@ def handle_follow_event(event):
             welcome_message += """
 
 📋 使用說明：
+• 最簡單：直接傳一張照片給我，我會問您想做什麼 📷
 • 輸入「!功能」查看功能表
 • 輸入「點數」查看剩餘點數
 • 輸入「圖片彩色化」處理黑白照片
@@ -317,6 +323,7 @@ def handle_follow_event(event):
 💎 剩餘點數：{member['points']} 點
 
 📋 使用說明：
+• 最簡單：直接傳一張照片給我，我會問您想做什麼 📷
 • 輸入「!功能」查看功能表
 • 輸入「點數」查看剩餘點數
 • 輸入「圖片彩色化」處理黑白照片
