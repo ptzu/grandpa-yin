@@ -13,6 +13,7 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from src.core.app_logger import get_logger, request_id_var
 from src.core.error_tracking import init_sentry, set_request_context
+from src.core.settings import get_member_settings
 from src.services.billing import BillingService
 from src.services.message_publisher import MessagePublisher
 from src.services.line_client import LineClient
@@ -302,7 +303,7 @@ def handle_follow_event(event):
 
         # 註冊獎勵：grant_signup_bonus 內部以 row lock + 交易記錄檢查保證
         # 同一帳號只發放一次（防止 LINE 重送或快速解除封鎖再加回刷點數）
-        welcome_points = int(os.getenv("WELCOME_POINTS", "0"))
+        welcome_points = get_member_settings().welcome_points
         bonus_granted = False
         if welcome_points > 0:
             bonus_granted = member_service.grant_signup_bonus(user_id, welcome_points)

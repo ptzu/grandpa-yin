@@ -1,7 +1,7 @@
 from linebot.models import TextSendMessage, ImageSendMessage
 
 from src.core.app_logger import get_logger
-from src.core.model_config import get_model_config
+from src.core.settings import get_model_config
 from .base_feature import BaseFeature, _UNSET
 from .feature_registry import is_global_command
 
@@ -20,12 +20,12 @@ class ReplicateImageFeature(BaseFeature):
 
     子類別需定義：
       - name（property）：功能名稱，同時作為扣點的 feature_type，也是
-        config/models.yml 裡對應的區段名稱
+        config/settings.yml 裡對應的區段名稱
       - trigger_command：觸發功能的訊息文字（例：「圖片彩色化」）
       - image_waiting_state：等待用戶上傳圖片的狀態名稱
       - handle_text / handle_image：功能各自的流程
 
-    模型 ID、點數、載入秒數與模型的輸入欄位對應都來自 config/models.yml，
+    模型 ID、點數、載入秒數與模型的輸入欄位對應都來自 config/settings.yml，
     不寫在程式碼裡（換模型／調價不必改碼）。
     """
 

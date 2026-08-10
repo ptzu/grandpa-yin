@@ -1,6 +1,6 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
-    "preDeployCommand": "python -m src.core.model_config && alembic upgrade head"
+    "preDeployCommand": "python -m src.core.settings && alembic upgrade head"
   }
 }

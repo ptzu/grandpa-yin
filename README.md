@@ -23,8 +23,8 @@
 | 圖片編輯 | `圖片編輯` | 傳圖 → 點選（或自行輸入）編輯描述 → 確認後才扣點 | 5（可設定）|
 | 會員／點數 | `會員`、`點數`、`歷史` | 查詢點數餘額與交易記錄 | — |
 
-- **AI 模型與點數都在 `config/models.yml`**，換模型／調價不必改程式碼（見下方）。
-- 新用戶加好友自動建立會員並贈送 `WELCOME_POINTS`（預設 50）點。
+- **模型、點數、贈點都在 `config/settings.yml`**，換模型／調價不必改程式碼（見下方）。
+- 新用戶加好友自動建立會員並贈送 `members.welcome_points`（預設 50）點。
 - 圖片以背景非同步處理，不阻塞使用者；多用戶對話狀態持久化於 `grandpa_yin.bot_sessions`。
 - **主要入口是「直接傳照片」**：長輩的心智模型是「處理這張照片」而不是「進入某個功能」。傳統的「先打指令再傳圖」路徑同時保留。
 - 圖片編輯全程可用 Quick Reply 完成（免打字），且**確認之後才扣點**，在那之前可隨時取消或換圖。
@@ -91,7 +91,7 @@ Webhook **網址**由腳本自動設定，但以下幾項是 Console 專屬、AP
 ## 部署（Railway）
 
 1. 在 [Railway](https://railway.app/) 建專案並連結此 repo。
-2. 於 Variables 設定環境變數：`CHANNEL_ACCESS_TOKEN`、`CHANNEL_SECRET`、`REPLICATE_API_TOKEN`、`DATABASE_URL`（Supabase 連線字串），可選 `COLORIZE_COST` / `EDIT_COST` / `WELCOME_POINTS`、`SENTRY_DSN` / `SENTRY_ENVIRONMENT`。
+2. 於 Variables 設定環境變數：`CHANNEL_ACCESS_TOKEN`、`CHANNEL_SECRET`、`REPLICATE_API_TOKEN`、`DATABASE_URL`（Supabase 連線字串），可選 `SENTRY_DSN` / `SENTRY_ENVIRONMENT`。模型與點數走 `config/settings.yml`，不必設變數。
 3. Push 到 `main` 即自動部署（啟動指令見 `Procfile`：`gunicorn src.app:app -w 2 --threads 8`）。
 4. 將 Railway 網域設為 LINE Webhook：`https://<your-app>.up.railway.app/webhook`。
 
@@ -146,7 +146,7 @@ src/                      ── 核心程式碼
   core/                   跨切面基礎設施（不含領域知識，不依賴 services）
     app_logger.py         帶 request_id 的分級 logger
     error_tracking.py     Sentry 初始化與 context
-    model_config.py       讀 config/models.yml（模型、點數、輸入欄位對應）
+    settings.py           讀 config/settings.yml（模型、點數、贈點）+ 驗證 CLI
     task_executor.py      背景工作的有界執行緒池
   features/               功能模組（繼承 base_feature.BaseFeature）
     context.py            FeatureContext：功能的依賴集合
@@ -165,7 +165,7 @@ src/                      ── 核心程式碼
     account_backend.py    AccountBackend port：standalone / platform 雙模式
   models/                 SQLAlchemy 模型（public.* 共用層 + grandpa_yin.* 產品層）
 
-config/models.yml         AI 模型、點數、模型輸入欄位對應（部署前會自動驗證）
+config/settings.yml       模型、點數、贈點、模型輸入欄位對應（部署前自動驗證）
 start_local_server.sh     本地一鍵啟動（Flask + ngrok + 自動設定 webhook）
 scripts/                  管理／排查腳本
 test/                     pytest 套件（離線）＋ setup_test_db.py、test_local.py
@@ -179,34 +179,42 @@ pytest.ini · alembic.ini · Procfile · railway.json · requirements.txt
 
 依賴方向為單向：`features → services → models`，三者都可依賴 `core`，反向依賴不允許。**外部系統一律經 `services/` 呼叫**——功能層不直接碰 HTTP、SDK 或資料庫。
 
-## 設定 AI 模型與點數
+## 設定：模型、點數、贈點
 
-`config/models.yml` 決定每個圖片功能用哪個模型、扣幾點、載入動畫幾秒，以及**該模型的輸入欄位名稱**：
+營運上會想調的東西都在 **`config/settings.yml`** 一個檔案裡，不必改程式碼：
 
 ```yaml
-edit:
-  model: google/nano-banana
-  cost: 5
-  loading_seconds: 45
-  input:
-    image_field: image_input    # 這個模型的圖片欄位叫什麼
-    image_is_list: true         # 吃陣列還是單值
-    prompt_field: prompt        # 描述放哪個欄位（不吃描述的填 null）
-  extra_input:
-    output_format: jpg
+features:
+  edit:
+    model: google/nano-banana
+    cost: 5                     # 扣幾點
+    loading_seconds: 45
+    input:
+      image_field: image_input  # 這個模型的圖片欄位叫什麼
+      image_is_list: true       # 吃陣列還是單值
+      prompt_field: prompt      # 描述放哪個欄位（不吃描述的填 null）
+    extra_input:
+      output_format: jpg
+
+members:
+  welcome_points: 50            # 新會員贈點，0 表示不送
 ```
 
 換模型時**光改 `model` 不夠**：不同模型的欄位名稱不一樣（`nano-banana` 的圖片欄位叫 `image_input` 且吃陣列，`restore-image` 叫 `input_image` 吃單值），`input` 區段要一起調。檔案裡的註解附了幾個常用模型的對應可直接抄。
 
-推之前先驗一次：
+### 改設定的流程
 
 ```bash
-python3 -m src.core.model_config
+# 1. 改 config/settings.yml
+# 2. 先驗（印出實際生效的值，設定寫錯會指出哪裡錯）
+python3 -m src.core.settings
+# 3. push，Railway 自動部署，約 1～2 分鐘後生效
+git commit -am "調整圖片編輯點數" && git push
 ```
 
-會印出每個功能實際生效的模型、點數與欄位對應；設定有誤會指出哪個欄位錯、該怎麼改。同一道檢查掛在 Railway 的 `preDeployCommand`，**設定壞掉會中止部署**，不會上線。
+設定寫錯**不會上線**，有三道防線：本地的 `python3 -m src.core.settings`、CI（PR 會被擋下）、Railway 的 `preDeployCommand`（中止部署）。**換模型另外務必在本地實測一次**——欄位對應寫錯的話設定本身是合法的，驗不出來，但線上每次處理都會失敗。
 
-> `EDIT_COST` / `COLORIZE_COST` / `EDIT_MODEL` / `COLORIZE_MODEL` 環境變數優先於設定檔，供線上不部署就調價用。反過來說，Railway 上只要還留著 `EDIT_COST`，改設定檔的點數就不會有效果。
+> 不想部署也能臨時改：Railway 的 Variables 設 `EDIT_COST` / `COLORIZE_COST` / `EDIT_MODEL` / `COLORIZE_MODEL` / `WELCOME_POINTS` 會**覆寫**設定檔，重啟即生效。代價是之後改設定檔會看不出效果——臨時調完記得把變數移除。`python3 -m src.core.settings` 印的是套用覆寫後的實際值。
 
 ## 測試
 

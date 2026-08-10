@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-from src.core.model_config import get_model_config
+from src.core.settings import get_model_config
 from src.services import billing as billing_module
 from src.services.billing import BillingService
 from src.features.context import FeatureContext
@@ -27,7 +27,7 @@ USER = "U-test-user"
 FAKE_OUTPUT_URL = "https://example.test/output.jpg"
 IMAGE_BYTES = b"\xff\xd8fake-jpeg"
 
-# Read from the shipped config/models.yml, so the suite asserts against whatever
+# Read from the shipped config/settings.yml, so the suite asserts against whatever
 # is actually configured — and fails loudly if that file stops being valid.
 COLORIZE_CONFIG = get_model_config("colorize")
 EDIT_CONFIG = get_model_config("edit")

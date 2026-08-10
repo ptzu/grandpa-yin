@@ -1,0 +1,89 @@
+# 銀爺爺的營運設定：AI 模型、點數費用、新會員贈點
+#
+# ── 怎麼改 ──────────────────────────────────────────────────────
+#   1. 改這個檔案
+#   2. python3 -m src.core.settings      ← 先驗，會印出實際生效的值
+#   3. git commit && git push            ← Railway 自動部署，約 1～2 分鐘
+#
+# 設定寫錯不會上線：CI 會擋下 PR，Railway 部署前也會再驗一次並中止部署。
+#
+# ── 換模型的步驟 ────────────────────────────────────────────────
+#   1. 到 https://replicate.com/explore 找模型，複製它的 ID（作者/模型名）
+#   2. 打開該模型的 API 頁，看它的輸入欄位叫什麼名字
+#   3. 把 model 換掉，並照著調整下面的 input 對應
+#   4. 本地實測一次再推（見 docs/TEST_ENVIRONMENT.md）
+#
+# 光換 model 是不夠的：不同模型的欄位名稱不一樣。例如 nano-banana 的圖片
+# 欄位叫 image_input 且吃「陣列」，restore-image 叫 input_image 吃「單張」。
+# 對應沒改的話換完模型會直接失敗（會退點給用戶，但每次都失敗）。
+
+# ══════════════════════════════════════════════════════════════
+# 功能：用哪個模型、扣幾點
+# ══════════════════════════════════════════════════════════════
+#
+#   model            Replicate 模型 ID
+#   cost             每次使用扣幾點
+#   loading_seconds  LINE 轉圈動畫顯示幾秒（5 的倍數，5～60；抓比實際處理
+#                    時間略長一點，動畫會在結果送出時自動停止）
+#   input.image_field    圖片要放進模型的哪個欄位
+#   input.image_is_list  該欄位吃陣列（true）還是單一值（false）
+#   input.prompt_field   文字描述放哪個欄位；不吃描述的模型留 null
+#   extra_input          固定附加的參數，照抄模型 API 頁上的欄位名
+
+features:
+
+  # 圖片編輯：傳圖 → 選（或打）修改描述 → 確認後扣點
+  edit:
+    model: google/nano-banana
+    cost: 5
+    loading_seconds: 45
+    input:
+      image_field: image_input
+      image_is_list: true
+      prompt_field: prompt
+    extra_input:
+      output_format: jpg
+
+  # 圖片彩色化：傳黑白照 → 自動上色
+  colorize:
+    model: flux-kontext-apps/restore-image
+    cost: 10
+    loading_seconds: 30
+    input:
+      image_field: input_image
+      image_is_list: false
+      # 彩色化不送文字描述
+      prompt_field: null
+    extra_input: {}
+
+# ══════════════════════════════════════════════════════════════
+# 會員
+# ══════════════════════════════════════════════════════════════
+
+members:
+  # 新用戶加好友時贈送的點數。設 0 表示不送。
+  # 同一個帳號只會發一次（解除封鎖再加回來不會重複領）。
+  welcome_points: 50
+
+# ══════════════════════════════════════════════════════════════
+# 其他可用的模型（想換時參考，欄位對應已附上）
+# ══════════════════════════════════════════════════════════════
+#
+# 圖片編輯：
+#   black-forest-labs/flux-kontext-pro
+#     input: {image_field: input_image, image_is_list: false, prompt_field: prompt}
+#     extra_input: {output_format: jpg}
+#   qwen/qwen-image-edit
+#     input: {image_field: image, image_is_list: false, prompt_field: prompt}
+#
+# 老照片修復／上色：
+#   flux-kontext-apps/restore-image
+#     input: {image_field: input_image, image_is_list: false, prompt_field: null}
+#   tencentarc/gfpgan          （偏人臉修復，不上色）
+#     input: {image_field: img, image_is_list: false, prompt_field: null}
+#
+# ── 臨時調整（不想部署時） ──────────────────────────────────────
+# Railway 的 Variables 設這些環境變數可覆寫本檔：
+#   EDIT_COST / COLORIZE_COST / EDIT_MODEL / COLORIZE_MODEL / WELCOME_POINTS
+# 但覆寫會蓋過這裡的值——調完記得移除，否則之後改本檔會看不出效果。
+# python3 -m src.core.settings 印的是套用覆寫後的實際值。

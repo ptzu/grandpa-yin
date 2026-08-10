@@ -1,5 +1,5 @@
 from src.core.app_logger import get_logger
-from src.core.model_config import get_model_config
+from src.core.settings import get_model_config
 from .base_feature import BaseFeature
 from linebot.models import TextSendMessage, QuickReply, QuickReplyButton, MessageAction
 
