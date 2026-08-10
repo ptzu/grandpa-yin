@@ -15,13 +15,25 @@
 
 ## 〇、離線測試（零依賴，先跑這個）
 
-改動圖片流程／狀態機後，先跑這支：不需要資料庫、LINE channel、Supabase、Replicate，全部以 fake 取代，直接驅動 `FeatureRegistry` 的路由。
+改動任何流程／狀態機／金流後，先跑這套：不需要資料庫、LINE channel、Supabase、Replicate，全部以 fake 取代（見 `test/conftest.py`），直接驅動 `FeatureRegistry` 的路由。
 
 ```bash
-python3 test/test_image_flow.py
+pip install -r requirements-dev.txt   # 只需一次
+pytest
 ```
 
-涵蓋：先傳圖問意圖 → 交棒 → 選描述 → 確認扣點的完整路徑，以及取消／換圖／重新描述／點數不足／群組靜默／流程中途切功能等岔路，另含八條中斷路徑都不留 Storage 孤兒圖。全通過會印 `結果：72/72 通過`，任一失敗以非 0 結束（可直接接 CI）。
+| 檔案 | 涵蓋 |
+|---|---|
+| `test_image_flow.py` | 先傳圖問意圖 → 交棒 → 選描述 → 確認扣點的完整路徑，以及取消／換圖／重新描述／點數不足／群組靜默／中途切功能等岔路，另含八條中斷路徑都不留 Storage 孤兒圖 |
+| `test_routing.py` | 路由層契約：註冊順序即優先序、`photo_intent` catch-all 必須最後、全局命令可在流程中途穿透且不破壞流程、其他功能的觸發指令不被當成輸入吃掉 |
+| `test_billing.py` | 金流：扣點後才執行、失敗退點並清狀態、扣不到點就不動用外部資源、執行緒池滿載時降級 |
+| `test_cleanup_storage.py` | 清理腳本的時間戳解析（含 Supabase 的超微秒精度格式） |
+
+同一套測試由 GitHub Actions 在每次 push / PR 時於 Python 3.9 與 3.12 上執行（`.github/workflows/ci.yml`）。
+
+> 有兩項標記為 `xfail`：「每則訊息只查一次狀態」。這是已知缺口——路由層查好的 state 沒有傳進 `handle_*`，功能內會再查一次 DB。測試先寫著，等路由層收斂時把標記拿掉就有回歸保護。
+
+`test/test_local.py` 是另一回事：它對著執行中的伺服器發 HTTP，屬於下面的整合測試，不在 `pytest` 套件內。
 
 下面幾章講的是需要真實外部資源的整合測試。
 

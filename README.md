@@ -141,18 +141,22 @@ python scripts/trace_user.py <名字>          # 追查某會員的點數異動�
 
 ```
 src/                      ── 核心程式碼
-  app.py                  主入口：webhook、初始化、訊息路由
-  core/                   跨切面基礎設施（不含領域知識）
+  app.py                  主入口：webhook、組裝依賴、註冊功能
+  core/                   跨切面基礎設施（不含領域知識，不依賴 services）
     app_logger.py         帶 request_id 的分級 logger
     error_tracking.py     Sentry 初始化與 context
-    task_executor.py      背景圖片處理的有界執行緒池
+    task_executor.py      背景工作的有界執行緒池
   features/               功能模組（繼承 base_feature.BaseFeature）
+    context.py            FeatureContext：功能的依賴集合
     feature_registry.py   訊息路由與功能註冊
     photo_intent_feature.py  圖片路由 catch-all：先傳圖再問意圖
     menu / colorize / edit / member_feature.py
-    replicate_feature.py  Replicate 模型呼叫共用邏輯
+    replicate_feature.py  Replicate 圖片功能的共用對話面
   services/               外部系統與領域狀態的封裝
-    message_publisher.py  LINE 訊息發送（reply / push、重試退避）
+    line_client.py        LINE 收訊側（下載圖片、查名稱、載入動畫）
+    message_publisher.py  LINE 發訊側（reply / push、重試退避）
+    billing.py            計費背景任務：扣點 → 執行 → 失敗退點 → 滿載降級
+    replicate_client.py   Replicate 模型呼叫與輸出解析
     user_state_manager.py 對話狀態機（grandpa_yin.bot_sessions）
     member_service.py     會員服務層（點數、交易）
     storage_service.py    Supabase Storage（圖片暫存）
@@ -161,19 +165,45 @@ src/                      ── 核心程式碼
 
 start_local_server.sh     本地一鍵啟動（Flask + ngrok + 自動設定 webhook）
 scripts/                  管理／排查腳本
-test/                     test_image_flow.py（離線）、setup_test_db.py、test_local.py
+test/                     pytest 套件（離線）＋ setup_test_db.py、test_local.py
 docs/                     部署、測試環境、開發日誌、系統健檢
 alembic/                  資料庫 migration（慣例與指令見 alembic/README.md）
   env.py                  範圍限定 grandpa_yin.*，連線字串取自 DATABASE_URL
   versions/               <時間戳>_<描述>.py，依時序排列
 .env.example              環境變數範本（複製為 .env 後填值）
-alembic.ini · Procfile · railway.json · requirements.txt
+pytest.ini · alembic.ini · Procfile · railway.json · requirements.txt
 ```
 
-依賴方向為單向：`features → services → models`，三者都可依賴 `core`，反向依賴不允許。
+依賴方向為單向：`features → services → models`，三者都可依賴 `core`，反向依賴不允許。**外部系統一律經 `services/` 呼叫**——功能層不直接碰 HTTP、SDK 或資料庫。
+
+## 測試
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+整套測試完全離線：資料庫、LINE、Replicate、Supabase 全以 fake 取代（見 `test/conftest.py`），不需要 `.env`、不會連外。push 與 PR 會由 GitHub Actions 在 Python 3.9 / 3.12 上跑一次。
+
+`test/test_local.py` 是對著執行中的伺服器發 HTTP 的手動煙霧測試，不在自動化套件內。
 
 ## 新增功能
 
-繼承 `src/features/base_feature.py` 的 `BaseFeature`，實作 `name` / `can_handle` 與訊息處理方法，再於 `src/app.py` 初始化區以 `feature_registry.register(...)` 註冊即可。
+繼承 `src/features/base_feature.py` 的 `BaseFeature`，實作 `name` / `can_handle` 與訊息處理方法，再於 `src/app.py` 初始化區以 `feature_registry.register(MyFeature(ctx))` 註冊即可。
 
-> 註冊順序即路由優先序。`PhotoIntentFeature` 是圖片的 catch-all，必須維持在最後註冊。
+功能透過建構子拿到的 `FeatureContext`（`src/features/context.py`）取得所有協作對象：
+
+| 欄位 | 用途 |
+|---|---|
+| `line` | LINE 收訊（下載圖片、查名稱、載入動畫） |
+| `publisher` | 發送訊息（reply / push） |
+| `state_manager` | 對話狀態 |
+| `billing` | 需要扣點的背景工作 |
+| `replicate` | 呼叫 AI 模型 |
+| `member_service` / `storage_service` | 會員與圖片暫存（可能為 `None`，需自行判斷） |
+
+要讓功能用到新的服務時，加一個欄位在 `FeatureContext`、在 `app.py` 組裝時填入即可，不必動其他功能的建構子。
+
+**要收費的功能**不必自己寫金流——把工作交給 `self.billing.submit(...)`，扣點、失敗退點、執行緒池滿載降級都由 `BillingService` 處理。這條路徑與 Replicate 無關，接任何外部服務都適用。
+
+> 註冊順序即路由優先序。`PhotoIntentFeature` 是圖片的 catch-all，必須維持在最後註冊（`test/test_routing.py` 有把關）。

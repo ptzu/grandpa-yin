@@ -1,6 +1,6 @@
 # 系統健檢報告
 
-> 最近更新：2026-08-09
+> 最近更新：2026-08-10
 > 範圍：src/（app.py、core/、features/、services/、models/）、Procfile、alembic/
 > 部署環境：Railway（Flask + gunicorn `-w 2 --threads 8`）、Supabase（PostgreSQL + Storage）
 > 前次健檢：2026-07-07（發現 5 大高危 + 8 項中低），修復進度見下方。
@@ -50,6 +50,26 @@
 5. 🟡 **`transactions` 加 `source/created_by`**——帳目稽核時分辨寫入來源（linebot / admin / 手動 SQL）。
 6. ✅ **Storage bucket 生命週期清理**（2026-08-10 完成）——兩層：狀態轉換時即時刪掉被取代的暫存圖；`scripts/cleanup_storage.py` 每日掃除「超過 24 小時且無 session 引用」的孤兒物件。Supabase 沒有原生 lifecycle policy，只能自己排程，設定見[部署文件](./DEPLOYMENT.md)的「排程維運」。**尚需在 Railway 建立 cron service 才會真正生效。**
 7. 🟢 **Replicate model ID 改環境變數 + `run_replicate` 加 timeout**——換模型免部署、避免 worker 長時間吊死（`replicate.run()` 無 client-side timeout）。
+
+---
+
+## 三之二、擴充性重整（2026-08-10）
+
+前次健檢只看「會不會壞」，沒看「加功能會不會痛」。以「假設要加 X」實測後發現：沿著既有那條路（再一個 Replicate 圖片功能）很順，跨出去就撞牆。已完成前三項：
+
+| # | 問題 | 狀態 | 處置 |
+|---|---|---|---|
+| 1 | 無自動化測試、無 CI，加功能沒有回歸保護 | ✅ 已修 | `test_image_flow.py` 改寫成 pytest 套件，新增 `test_routing.py` / `test_billing.py`；GitHub Actions 跑 3.9 + 3.12 |
+| 2 | 功能吃 5 個位置參數，加一個依賴要改 7 處 | ✅ 已修 | `FeatureContext` 注入；新增協作對象＝加一個欄位 + `app.py` 一行 |
+| 3 | 功能層直接打 HTTP / SDK（`get_profile`、`get_message_content`、loading API、`replicate.run`），違反自己宣告的 `features → services` | ✅ 已修 | 新增 `services/line_client.py`（收訊側）、`services/replicate_client.py` |
+| 4 | 金流編排寫在 `ReplicateImageFeature`，非 Replicate 的付費功能拿不到 | ✅ 已修 | 抽成 `services/billing.py`；退點路徑也因此首度有測試 |
+| 5 | 路由層持有功能知識（`GLOBAL_COMMANDS` 硬編清單）；註冊順序即優先序，只有註解在保護 | 🟠 待修 | 改由 feature 宣告 `global_commands` / `priority`；順序契約目前已有測試把關 |
+| 6 | 只支援 text / image 兩種事件，`app.py` 硬分支，無 postback 擴充點 | 🟠 待修 | 收斂成單一 `registry.route(event)`，feature 宣告可處理的事件型別 |
+| 7 | 路由層查好的 state 沒傳進 `handle_*`，功能內再查一次 DB | 🟠 待修 | 已有 `xfail` 測試標記；修好即拿掉標記 |
+| 8 | Quick Reply 用 `MessageAction`，UI 文案 = 路由指令（改文案就改路由、用戶手打同字也觸發、`CMD_CANCEL` 各定義一份） | 🟡 待修 | 改 `PostbackAction`（需先做第 6 項） |
+| 9 | 指令比對分散三處，`MemberFeature` 的 `"會員" in message` 過度寬鬆會遮蔽未來功能 | 🟡 待修 | 隨第 5 項一起收斂 |
+| 10 | `handle_follow_event` 100 行在 `app.py`，含硬編文案且與 `menu_feature` 重複 | 🟡 待修 | 下放成 feature 或 onboarding service |
+| 11 | 文案全部內嵌在程式碼中 | 🟢 待評估 | 長輩產品文案會反覆調整，可考慮集中管理 |
 
 ---
 

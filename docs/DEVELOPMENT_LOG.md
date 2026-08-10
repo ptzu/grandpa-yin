@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-08-10 — 擴充性重整：測試安全網、依賴注入、金流下放
+
+**背景**：架構健檢一直問「會不會壞」，這次改問「加功能會不會痛」。用「假設要加 X」實測，結論很不對稱——**沿著既有那條路（再一個 Replicate 圖片功能）非常順，跨出去就撞牆**：
+
+- 非 Replicate 的付費功能：金流編排（扣點 → 執行 → 失敗退點 → 滿載降級）寫在 `ReplicateImageFeature` 裡，等於只有「Replicate 圖片功能的子類別」拿得到，其他只能整段複製。
+- 功能需要新依賴：建構子吃五個位置參數，加一個要改 `BaseFeature` + 每個子類別 + `app.py` 五處註冊，共七處散彈式修改。
+- 分層宣稱 `features → services → models`，但功能層自己持有 `LineBotApi` 呼叫 `get_profile` / `get_message_content`，`replicate_feature` 還直接 `requests.post` 打 LINE 的 loading API、直接 `replicate.run()`——**HTTP 與 SDK 呼叫出現在功能層**。
+
+**做法**（分三步，每步都先跑測試）：
+
+1. **先補安全網**。`test_image_flow.py` 從 script 式斷言改寫成 pytest 套件（fakes 抽到 `conftest.py`），再補 `test_routing.py` 把原本只有註解在保護的路由契約寫成測試：註冊順序即優先序、`photo_intent` catch-all 必須最後、全局命令可在流程中途穿透且不破壞流程。加 GitHub Actions（3.9 + 3.12，全程離線）。**沒有這一步，後面兩步不敢動。**
+2. **`FeatureContext` 取代五個位置參數**，並新增 `services/line_client.py` 收下 LINE 收訊側（`MessagePublisher` 本來就是發訊側）。加新依賴從「改七處」變成「加一個欄位 + `app.py` 一行」。
+3. **金流與模型呼叫下放**到 `services/billing.py` 與 `services/replicate_client.py`，`ReplicateImageFeature` 瘦身成純委派，只留這類功能的對話面。
+
+**副作用（正面的）**：退點路徑首度有測試。邏輯埋在 feature 裡時測不到——要偽造「Replicate 失敗」得 monkeypatch 一個方法；抽成服務 + 注入 fake client 之後，`FakeReplicateClient(fail_with=...)` 就自然涵蓋失敗退點、扣不到點不動用外部資源、池滿降級、失敗也要清狀態。
+
+**決策取捨**：路由層的收斂（`GLOBAL_COMMANDS` 硬編清單、單一 `route(event)`、postback 支援）這次**沒做**。它會動到 `BaseFeature` 的公開介面，範圍比前三步大一個量級，而前三步已經解鎖了最貴的那個限制（非 Replicate 功能）。「每則訊息只查一次狀態」的測試先以 `xfail` 寫著，修好時拿掉標記就有回歸保護——待辦清單見[系統健檢](./HEALTH_CHECK.md)第三之二章。
+
+**驗證**：50 項測試（含 2 項刻意 xfail）全通過；`import src.app` 走完整初始化、五個功能正常註冊。行為零改變。
+
+---
+
 ## 2026-08-10 — 本地 standalone 測試環境名實相符
 
 **背景**：整理 Alembic 時順手檢查本地 dev DB，發現 `alembic current` 停在 baseline，落後 head 兩版。追下去發現的不只是版本落後：
