@@ -43,8 +43,8 @@ class EditFeature(ReplicateImageFeature):
     image_waiting_state = STATE_WAITING_IMAGE
     loading_seconds = 45  # 圖片編輯可能需要更長時間
 
-    def __init__(self, line_bot_api, publisher, state_manager, member_service=None, storage_service=None):
-        super().__init__(line_bot_api, publisher, state_manager, member_service, storage_service)
+    def __init__(self, ctx):
+        super().__init__(ctx)
         self.required_points = int(os.getenv("EDIT_COST", "5"))
 
     @property

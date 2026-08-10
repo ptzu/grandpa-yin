@@ -18,6 +18,7 @@ import pytest
 
 from src.features import replicate_feature as replicate_module
 from src.features.replicate_feature import ReplicateImageFeature
+from src.features.context import FeatureContext
 from src.features.feature_registry import FeatureRegistry
 from src.features.menu_feature import MenuFeature
 from src.features.colorize_feature import ColorizeFeature
@@ -98,19 +99,20 @@ class FakePublisher:
         return [m["text"] for m in self.messages if m["text"]]
 
 
-class FakeContent:
-    def iter_content(self):
-        yield IMAGE_BYTES
+class FakeLineClient:
+    """Stands in for services.line_client.LineClient (LINE receive side)"""
 
+    def __init__(self):
+        self.loading_animations = []
 
-class FakeLineBotApi:
-    def get_message_content(self, message_id):
-        return FakeContent()
+    def download_message_content(self, message_id):
+        return IMAGE_BYTES
 
-    def get_profile(self, user_id):
-        class Profile:
-            display_name = "阿嬤"
-        return Profile()
+    def get_display_name(self, user_id):
+        return "阿嬤"
+
+    def start_loading_animation(self, user_id, seconds=30):
+        self.loading_animations.append((user_id, seconds))
 
 
 class FakeStorage:
@@ -255,19 +257,26 @@ class Env:
 
 def build_env(points=100, with_member_feature=False):
     """Assemble a registry the same way app.py does (photo_intent registered last)"""
-    line_bot_api = FakeLineBotApi()
     publisher = FakePublisher()
     state_manager = FakeStateManager()
     member_service = FakeMemberService(points)
     storage = FakeStorage()
 
+    ctx = FeatureContext(
+        line=FakeLineClient(),
+        publisher=publisher,
+        state_manager=state_manager,
+        member_service=member_service,
+        storage_service=storage,
+    )
+
     registry = FeatureRegistry(state_manager)
-    registry.register(MenuFeature(line_bot_api, publisher, state_manager, member_service, storage))
-    registry.register(ColorizeFeature(line_bot_api, publisher, state_manager, member_service, storage))
-    registry.register(EditFeature(line_bot_api, publisher, state_manager, member_service, storage))
+    registry.register(MenuFeature(ctx))
+    registry.register(ColorizeFeature(ctx))
+    registry.register(EditFeature(ctx))
     if with_member_feature:
-        registry.register(MemberFeature(line_bot_api, publisher, state_manager, member_service, storage))
-    registry.register(PhotoIntentFeature(line_bot_api, publisher, state_manager, member_service, storage))
+        registry.register(MemberFeature(ctx))
+    registry.register(PhotoIntentFeature(ctx))
 
     return Env(registry, publisher, state_manager, member_service, storage)
 
@@ -277,15 +286,14 @@ def build_env(points=100, with_member_feature=False):
 
 @pytest.fixture(autouse=True)
 def offline_externals(monkeypatch):
-    """Run background tasks synchronously; stub out Replicate and the loading animation.
+    """Run background tasks synchronously and stub out Replicate.
 
     Autouse so no test can accidentally reach the network, and monkeypatch-based
     so the patches are undone between tests instead of leaking globally.
+    (The loading animation needs no patch — it goes through FakeLineClient.)
     """
     monkeypatch.setattr(replicate_module, "submit_image_task",
                         lambda task: (task(), True)[1])
-    monkeypatch.setattr(ReplicateImageFeature, "start_loading_animation",
-                        lambda self, user_id: None)
     monkeypatch.setattr(ReplicateImageFeature, "run_replicate",
                         lambda self, input_dict: FAKE_OUTPUT_URL)
 

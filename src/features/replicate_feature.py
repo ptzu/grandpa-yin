@@ -1,6 +1,4 @@
-import os
 import base64
-import requests
 import replicate
 from linebot.models import TextSendMessage, ImageSendMessage
 
@@ -127,20 +125,7 @@ class ReplicateImageFeature(BaseFeature):
 
     def start_loading_animation(self, user_id: str):
         """發送 LINE 載入動畫；失敗不影響主流程"""
-        try:
-            response = requests.post(
-                "https://api.line.me/v2/bot/chat/loading/start",
-                headers={
-                    'Content-Type': 'application/json',
-                    'Authorization': f'Bearer {os.getenv("CHANNEL_ACCESS_TOKEN")}',
-                },
-                json={"chatId": user_id, "loadingSeconds": self.loading_seconds},
-                timeout=(3, 10),
-            )
-            if response.status_code != 200:
-                logger.warning(f"載入動畫啟動失敗: {response.status_code} - {response.text}")
-        except Exception as e:
-            logger.warning(f"啟動載入動畫時發生錯誤: {str(e)}")
+        self.line.start_loading_animation(user_id, self.loading_seconds)
 
     def submit_billed_processing(self, user_id, event, deduct_description, run) -> bool:
         """「先扣點 → run() 產出結果圖 URL → 推送；失敗退點」的完整計費流程。

@@ -15,8 +15,8 @@ class ColorizeFeature(ReplicateImageFeature):
     image_waiting_state = "waiting"
     loading_seconds = 30
 
-    def __init__(self, line_bot_api, publisher, state_manager, member_service=None, storage_service=None):
-        super().__init__(line_bot_api, publisher, state_manager, member_service, storage_service)
+    def __init__(self, ctx):
+        super().__init__(ctx)
         self.required_points = int(os.getenv("COLORIZE_COST", "10"))
 
     @property
