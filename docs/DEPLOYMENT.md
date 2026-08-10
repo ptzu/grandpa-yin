@@ -34,7 +34,7 @@ LINE Platform ──► Railway (Flask /webhook, gunicorn -w 2 --threads 8)
 | 點數/交易 | Altide `public.accounts.points_balance` / `transactions` | 自有 `grandpa_yin.wallet_transactions` |
 | 依賴 Altide | 是（需先有 `public.*` 共用層） | 否（只需 `grandpa_yin.*`） |
 
-切換點集中在 `services/account_backend.py`（`AccountBackend` port + 兩個 adapter），業務邏輯只認 port。細節見[開發日誌](./DEVELOPMENT_LOG.md)。
+切換點集中在 `src/services/account_backend.py`（`AccountBackend` port + 兩個 adapter），業務邏輯只認 port。細節見[開發日誌](./DEVELOPMENT_LOG.md)。
 
 線上目前跑 **platform** 模式，與 Altide 共用帳號層。
 
@@ -94,11 +94,11 @@ Railway 改 Variables **不會**自動重啟舊容器的 process 內快取，改
 schema 分兩層、各自管理：
 
 - **共用層 `public.*`**（accounts / transactions / linked_identities）由 Altide 的 `altide-landing-page/supabase/schema.sql` 管理（含 `auth.*` / `storage.*` 依賴，僅適用於 Supabase）。本專案**不碰**。
-- **產品層 `grandpa_yin.*`**（bot_sessions / usage_logs / user_profiles / subjects / wallet_transactions）由本專案的 **Alembic** 管理，migration 檔在 `alembic/versions/`。
+- **產品層 `grandpa_yin.*`**（bot_sessions / usage_logs / user_profiles / subjects / wallet_transactions）由本專案的 **Alembic** 管理，migration 檔在 `alembic/versions/`（命名慣例與常用指令見 [`alembic/README.md`](../alembic/README.md)）。
 
 每次部署，Railway 的 `preDeployCommand`（見 `railway.json`）自動執行 `alembic upgrade head`，把 `grandpa_yin.*` 更新到最新；失敗則中止部署（不會帶著壞 schema 上線）。
 
-**改動流程**：改 `models/*.py` → `alembic revision --autogenerate -m "描述"` → **檢視產生的 migration** → commit → push（model 與 migration 檔要一起 push）。
+**改動流程**：改 `src/models/*.py` → `alembic revision --autogenerate -m "描述"` → **檢視產生的 migration** → commit → push（model 與 migration 檔要一起 push）。
 
 ### 首次導入（線上 DB 已有 grandpa_yin.* 表時，只做一次）
 

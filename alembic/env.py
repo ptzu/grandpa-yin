@@ -18,11 +18,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from models.database import Base
-import models  # noqa: F401  觸發所有 model 註冊到 Base.metadata
+from src.models.database import Base, OWNED_SCHEMA  # noqa: F401
+from src import models  # noqa: F401  觸發所有 model 註冊到 Base.metadata
 
-# 本產品擁有的 schema；只有這個 schema 的物件會被 migration 管理
-OWNED_SCHEMA = "grandpa_yin"
+# OWNED_SCHEMA（= "grandpa_yin"）定義在 src/models/database.py，與
+# test/setup_test_db.py 共用同一份定義。只有這個 schema 的物件會被 migration 管理。
 
 config = context.config
 

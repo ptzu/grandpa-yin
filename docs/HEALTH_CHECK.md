@@ -1,7 +1,7 @@
 # 系統健檢報告
 
 > 最近更新：2026-08-09
-> 範圍：app.py、features/、services/、models/、message_publisher.py、user_state_manager.py、Procfile、alembic/
+> 範圍：src/（app.py、core/、features/、services/、models/）、Procfile、alembic/
 > 部署環境：Railway（Flask + gunicorn `-w 2 --threads 8`）、Supabase（PostgreSQL + Storage）
 > 前次健檢：2026-07-07（發現 5 大高危 + 8 項中低），修復進度見下方。
 

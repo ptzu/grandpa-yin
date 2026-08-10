@@ -18,8 +18,8 @@ import argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
-from models.database import init_database
-from user_state_manager import UserStateManager
+from src.models.database import init_database
+from src.services.user_state_manager import UserStateManager
 
 def cleanup_user_states(hours=24):
     """清理用戶狀態"""

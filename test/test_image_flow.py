@@ -17,13 +17,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["COLORIZE_COST"] = "10"
 os.environ["EDIT_COST"] = "5"
 
-from features import replicate_feature as replicate_module
-from features.replicate_feature import ReplicateImageFeature
-from features.feature_registry import FeatureRegistry
-from features.menu_feature import MenuFeature
-from features.colorize_feature import ColorizeFeature
-from features.edit_feature import EditFeature
-from features.photo_intent_feature import PhotoIntentFeature
+from src.features import replicate_feature as replicate_module
+from src.features.replicate_feature import ReplicateImageFeature
+from src.features.feature_registry import FeatureRegistry
+from src.features.menu_feature import MenuFeature
+from src.features.colorize_feature import ColorizeFeature
+from src.features.edit_feature import EditFeature
+from src.features.photo_intent_feature import PhotoIntentFeature
 
 FAKE_OUTPUT_URL = "https://example.test/output.jpg"
 IMAGE_BYTES = b"\xff\xd8fake-jpeg"

@@ -5,6 +5,91 @@
 
 ---
 
+## 2026-08-10 — 本地 standalone 測試環境名實相符
+
+**背景**：整理 Alembic 時順手檢查本地 dev DB，發現 `alembic current` 停在 baseline，落後 head 兩版。追下去發現的不只是版本落後：
+
+`setup_test_db.py` 用 `Base.metadata.create_all()` 建**所有** model 的表，包含 Altide 共用層 `public.accounts` / `transactions` / `linked_identities`——**即使 `DEPLOY_MODE=standalone`**。兩個後果：
+
+1. **本地的「standalone 環境」從來沒在測 standalone 隔離**。文件宣稱「standalone 在零 Altide 表下跑完整流程通過」，但本地環境一直都有那三張表。
+2. **整合 migration `a7b8c9d0e1f2` 的模式偵測會誤判**。它以「`public.accounts` 是否存在」作為「是否 platform 模式」的代理判斷；本地 standalone 庫有 `accounts`，於是一旦在該庫執行 `downgrade` 後再 `upgrade`，就會補上 `grandpa_yin.*.account_id → public.accounts.id` 的外鍵。但 standalone 模式下 `account_id` 存的是 `subjects.id`，加了外鍵之後所有寫入都會違反約束。
+
+**做法**：
+
+- `setup_test_db.py` 改為 **mode-aware**：`standalone` 只建 `grandpa_yin.*`，`platform` 才連 `public.*` 一起建。代理判斷因此自然成立，「零 Altide 表」的宣稱也才成真。
+- 加 `_warn_if_stray_platform_tables()`：standalone 模式下若偵測到殘留的 Altide 表，印出清除指令。**只提醒不刪除**——刪表是破壞性操作。
+- `OWNED_SCHEMA` 常數收進 `src/models/database.py`，`alembic/env.py` 與 `setup_test_db.py` 共用同一份定義（原本各寫各的字串）。
+
+**本地 DB 的處置**：用 `alembic stamp head` 而非 `upgrade head`。表早就被 `create_all` 建好了，跑 `upgrade` 會撞 `CREATE TABLE ... already exists`；`stamp` 只更新版本記錄。事後 `alembic check` 回報「No new upgrade operations detected」，證明資料庫結構與 model 確實一致。
+
+**驗證**（全部用臨時資料庫，測完刪除）：standalone 建表 → 只有 5 張 `grandpa_yin.*`、零 `public.*`；platform 建表 → 8 張含 3 張 `public.*`；**真 standalone 空庫直接 `alembic upgrade head`** → 三支 migration 依序執行、誤加的 FK 數量為 0；手動塞一張 `public.accounts` 後重跑腳本 → 殘留警告正確觸發。
+
+---
+
+## 2026-08-10 — `.env.example` 與 Alembic 整理（對齊 jotta 的慣例）
+
+參照隔壁 `jotta` 專案（pnpm monorepo + Prisma）的做法收斂命名與配置。jotta 的 `apps/api/` 是 `.env.example` + `src/` + `scripts/` + `prisma/`（schema 與 migrations 同一個目錄），與本專案重整後的結構同構，`alembic/` 對應的正是 `prisma/` 的位置——所以目錄位置不動，只整理內容。
+
+**`env_example.txt` → `.env.example`**：與 `.env` 相鄰排序、一眼看出是範本；`.gitignore` 的 `.env` 只精確匹配該檔名，不會誤傷。連帶更新 5 處引用（README、測試環境文件、`start_local_server.sh`、`test/test_local.py` ×2）。
+
+**Alembic**：
+
+- **migration 檔名改為 `<時間戳>_<描述>.py`**——`alembic.ini` 加 `file_template`，對齊 Prisma 的 `20260703063749_init` 形式，`versions/` 目錄天然依時序排列。現有三支一併回填時間戳：baseline 取自檔內 `Create Date`，另兩支取自 git 首次 commit 時間（同一個 commit，秒數差 1 以保留 `down_revision` 順序）。**改檔名不影響行為**——Alembic 認的是檔案裡的 `revision`，不是檔名；三個 revision id 完全未變，文件中的引用也不受影響。
+- **`alembic.ini` 從 146 行精簡到 60 行**——原本九成是 `alembic init` 產生、本專案沒有啟用的選項註解（post_write_hooks、version_locations、sourceless…）。只留實際生效的設定，並替每一項寫上為什麼這樣設。
+- **`alembic/README` 換掉**——原本只有 stock 的一行 "Generic single-database configuration."。改寫為 `README.md`：檔案職責、命名慣例、以 revision id 反查檔案的方法、常用指令，以及三項容易踩到的注意事項（autogenerate 偵測不到欄位改名／本地缺 RLS 與 trigger／新 migration 碰到 `public.*` 時要寫成 mode-aware）。
+
+**驗證**：`alembic history --verbose` 正確讀出新檔名與完整鏈；離線模式 `alembic upgrade a6e5ccf71d56:head --sql` 產得出正確 DDL（不連線、不改資料庫）；實際跑一次 `alembic revision` 確認 `file_template` 產出 `20260810110606_naming_convention_probe.py`（探測檔已刪除）。
+
+**順帶發現**：本地 dev DB 的 `alembic current` 停在 baseline `a6e5ccf71d56`，落後 head 兩版（缺 `subjects` / `wallet_transactions`）。這是既有狀態、與本次改動無關，本地要跑 standalone 模式前需補 `alembic upgrade head`。
+
+---
+
+## 2026-08-10 — 本地啟動器改寫為 shell script
+
+`start_local_server.py`（300+ 行）→ `start_local_server.sh`。它做的四件事——檢查依賴、起 Flask、起 ngrok、呼叫 LINE API 設定 webhook——本來就是流程編排，用 shell 表達更直接，也不再需要為了啟動 Python 而先跑一個 Python。
+
+**順帶修掉原版的問題**：
+
+- **固定 `sleep` 改成輪詢**——原版 `sleep(3)` 等 Flask、`sleep(5)` 等 ngrok，機器慢就誤判失敗。現在輪詢到 `/webhook` 回 405（只收 POST，405 即代表就緒）為止。
+- **收拾子行程**——Flask debug 模式會 fork 出 reloader 子行程，原版只 `terminate()` 父行程，留下孤兒佔著 port。現在 `pkill -P` 連子行程一起收。
+- **`PORT` 實際生效**——原版讀了 `PORT` 卻在探測與開隧道時寫死 5000，`PORT` 一改就壞。
+- **移除死碼**——`run_test()` 從來沒有被 `start()` 呼叫過。
+- **新增 port 佔用預檢**——macOS 的「隔空播放接收器」預設佔用 5000，是最常見的啟動失敗原因，現在會直接指出佔用者。
+
+**踩到的三個坑（都已修並驗證）**：
+
+1. **`.env` 的行內註解**——`LOG_LEVEL=DEBUG    # 測試時看詳細 log` 整串被當成值，Flask 一啟動就 `ValueError: Unknown level`。python-dotenv 會砍掉「空白 + `#`」之後的內容，我第一版漏了。規則有分支：引號內的 `#` 要保留、`abc#def` 這種沒有前導空白的也不算註解。**這個坑是實跑才發現的**——前一輪只測了自己想得到的案例，沒拿真實 `.env` 對照，教訓是解析器類的東西一定要用真實輸入覆核。
+2. **Python 3.9 的 f-string 表達式不能含跳脫引號**——內嵌的 `python3 -c` 用 `f"{result.get(\"statusCode\")}"` 會直接 SyntaxError。改用 `%` 格式化。
+3. **bash 3.2 會把全形字元吃進變數名**——macOS 內建 bash 3.2，在非 UTF-8 locale 下 `"$missing（請檢查）"` 會被解讀成變數 `missing\xef…` 而報 unbound variable。凡是變數後面直接接中文，一律加大括號 `${missing}`。這條路徑正是新手最先踩到的「缺環境變數」錯誤訊息。
+
+**`.env` 讀取用逐行解析而非 `source`**：`source` 會把 `.env` 當 shell 執行（`INJECT=$(echo pwned)` 真的會跑），且會覆蓋呼叫端已設定的環境變數。自訂的 `load_dotenv` 比照 python-dotenv 語意——**既有環境變數優先**、值不做命令替換、去除成對引號、砍掉行內註解。
+
+**驗證**：以 bash 3.2 做語法檢查；`.env` 解析對照 export/引號/空值/行內註解/含特殊字元的 URL/注入嘗試/`KEY = value` 等案例，並以**真實 `.env`** 覆核；四條 guard 路徑（缺 .env、缺變數、port 佔用、Flask 起不來）皆實測正確且會清理行程。設定 webhook 之後的段落未實跑——它會真的改動測試 channel 的設定。
+
+---
+
+## 2026-08-10 — 專案結構重整（核心程式碼收進 `src/` 套件）
+
+**背景**：根目錄同時躺著 `app.py`、`app_logger.py`、`error_tracking.py`、`message_publisher.py`、`task_executor.py`、`user_state_manager.py` 與 `features/` `models/` `services/` 三個套件，加上設定檔、腳本、文件目錄，看不出哪些是核心程式碼、哪些是周邊工具，也沒有可依循的依賴方向。
+
+**做法**：
+
+- 核心程式碼全部移進 `src/` 套件。取 `src` 而非 `app`，是因為 `app` 會三重撞名：`app/app.py`、`gunicorn app.app:app`、Flask 實例本身也叫 `app`。
+- 根目錄散落的模組依職責歸位，形成四層：
+  - `core/` — `app_logger` / `error_tracking` / `task_executor`：跨切面基礎設施，不含任何領域知識。
+  - `models/` — 資料層（不動）。
+  - `services/` — 併入 `message_publisher`（LINE 發送）與 `user_state_manager`（對話狀態）。它們本來就是「對外部系統／領域狀態的封裝」，與 `member_service` / `storage_service` / `account_backend` 同一層，散在根目錄只是歷史遺留。
+  - `features/` — 功能模組（不動）。
+- 依賴方向定為單向：`features → services → models`，三者皆可依賴 `core`，反向不允許。
+- 啟動器從 `test/start_local_server.py` 移到根目錄並改寫為 shell script `start_local_server.sh`——它是開發入口，不是測試案例，放在 `test/` 底下還要 `cd test` 才跑得動。詳見下方同日條目。
+- 連帶更新：`Procfile`（`gunicorn src.app:app`）、`alembic/env.py`、`scripts/*`、`test/*`、全部文件的路徑引用。
+
+**決策取捨**：`scripts/` 與 `test/` 留在根目錄不併入套件——它們是工具而非產品程式碼，且都以獨立腳本方式執行。套件內一律用絕對匯入（`src.*`），只有 `features/` 內部彼此引用維持相對匯入。
+
+**驗證**：全部檔案以 `git mv` 搬移，git 判定為 rename、歷史完整保留。`gunicorn` 進入點、四支管理腳本、`alembic/env.py` 匯入皆實測通過；離線測試 72 項全數維持通過。
+
+---
+
 ## 2026-08-10 — 圖片流程對長輩友善化（先傳圖 → 選功能）
 
 **背景**：評估「要不要做 LIFF 讓上傳更友善」，結論是**上傳不是痛點**——長輩在 LINE 傳照片已經很熟練，LIFF 的 `<input type=file>` 反而多一層。真正的痛點在對話流程本身：

@@ -25,7 +25,7 @@ class LineBotTester:
         
         if not self.channel_secret or not self.channel_access_token:
             print("❌ 錯誤: 請設定 CHANNEL_SECRET 和 CHANNEL_ACCESS_TOKEN 環境變數")
-            print("請複製 env_example.txt 為 .env 並填入正確的值")
+            print("請複製 .env.example 為 .env 並填入正確的值")
             return
         
         print("✅ LINE Bot 測試器已初始化")
@@ -252,7 +252,7 @@ def main():
     # 檢查環境變數
     if not os.path.exists(".env"):
         print("❌ 找不到 .env 檔案")
-        print("請複製 env_example.txt 為 .env 並填入正確的環境變數")
+        print("請複製 .env.example 為 .env 並填入正確的環境變數")
         return
     
     tester = LineBotTester()

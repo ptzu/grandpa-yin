@@ -32,9 +32,9 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
-from models.database import init_database, get_session
-from models.bot_session import BotSession
-from services.storage_service import StorageService
+from src.models.database import init_database, get_session
+from src.models.bot_session import BotSession
+from src.services.storage_service import StorageService
 
 
 def parse_timestamp(value):
