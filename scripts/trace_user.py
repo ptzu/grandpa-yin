@@ -28,13 +28,13 @@ except Exception:
 from dotenv import load_dotenv
 from sqlalchemy import func
 
-from models.database import init_database, get_session
-from models.account import Account
-from models.linked_identity import LinkedIdentity
-from models.grandpa_yin_profile import GrandpaYinProfile
-from models.transaction import Transaction
-from models.usage_log import UsageLog
-from models.bot_session import BotSession
+from src.models.database import init_database, get_session
+from src.models.account import Account
+from src.models.linked_identity import LinkedIdentity
+from src.models.grandpa_yin_profile import GrandpaYinProfile
+from src.models.transaction import Transaction
+from src.models.usage_log import UsageLog
+from src.models.bot_session import BotSession
 
 LINE_PROVIDER = 'line'
 

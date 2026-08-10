@@ -34,7 +34,7 @@ LINE Platform ──► Railway (Flask /webhook, gunicorn -w 2 --threads 8)
 | 點數/交易 | Altide `public.accounts.points_balance` / `transactions` | 自有 `grandpa_yin.wallet_transactions` |
 | 依賴 Altide | 是（需先有 `public.*` 共用層） | 否（只需 `grandpa_yin.*`） |
 
-切換點集中在 `services/account_backend.py`（`AccountBackend` port + 兩個 adapter），業務邏輯只認 port。細節見[開發日誌](./DEVELOPMENT_LOG.md)。
+切換點集中在 `src/services/account_backend.py`（`AccountBackend` port + 兩個 adapter），業務邏輯只認 port。細節見[開發日誌](./DEVELOPMENT_LOG.md)。
 
 線上目前跑 **platform** 模式，與 Altide 共用帳號層。
 
@@ -94,11 +94,11 @@ Railway 改 Variables **不會**自動重啟舊容器的 process 內快取，改
 schema 分兩層、各自管理：
 
 - **共用層 `public.*`**（accounts / transactions / linked_identities）由 Altide 的 `altide-landing-page/supabase/schema.sql` 管理（含 `auth.*` / `storage.*` 依賴，僅適用於 Supabase）。本專案**不碰**。
-- **產品層 `grandpa_yin.*`**（bot_sessions / usage_logs / user_profiles / subjects / wallet_transactions）由本專案的 **Alembic** 管理，migration 檔在 `alembic/versions/`。
+- **產品層 `grandpa_yin.*`**（bot_sessions / usage_logs / user_profiles / subjects / wallet_transactions）由本專案的 **Alembic** 管理，migration 檔在 `alembic/versions/`（命名慣例與常用指令見 [`alembic/README.md`](../alembic/README.md)）。
 
 每次部署，Railway 的 `preDeployCommand`（見 `railway.json`）自動執行 `alembic upgrade head`，把 `grandpa_yin.*` 更新到最新；失敗則中止部署（不會帶著壞 schema 上線）。
 
-**改動流程**：改 `models/*.py` → `alembic revision --autogenerate -m "描述"` → **檢視產生的 migration** → commit → push（model 與 migration 檔要一起 push）。
+**改動流程**：改 `src/models/*.py` → `alembic revision --autogenerate -m "描述"` → **檢視產生的 migration** → commit → push（model 與 migration 檔要一起 push）。
 
 ### 首次導入（線上 DB 已有 grandpa_yin.* 表時，只做一次）
 
@@ -203,5 +203,27 @@ SELECT id, 10, 'silver-grandpa', points_balance, '補償（incident YYYY-MM-DD�
 3. **推送失敗的自動退點**——目前「處理成功但 push 失敗」會白扣點，靠人工補償。
 4. **Supabase connection pooler（6543）**——根治連線池上限。
 5. **`transactions` 加 `source/created_by`**——帳目稽核分辨寫入來源。
-6. **Storage bucket 生命週期清理**——自動刪超過 1 天的暫存圖。
+6. ~~**Storage bucket 生命週期清理**~~——✅ 已完成（2026-08-10），見下方「排程維運」。
 7. **Replicate model ID 改環境變數 + timeout**——換模型免部署、避免 worker 吊死。
+
+### 排程維運（Railway cron）
+
+Supabase Storage **沒有** S3 那種 lifecycle policy 可以在 dashboard 設定，暫存圖的清理要自己排程。
+
+清理分兩層：
+- **即時**——狀態轉換時自動刪掉被取代的暫存圖（`BaseFeature._discard_superseded_image`），涵蓋走完流程、取消、換圖、中途切功能。
+- **兜底**——`scripts/cleanup_storage.py` 掃 bucket，刪「超過 24 小時 **且** 沒有任何存活 `bot_session` 引用」的物件。負責 crash、重新部署打斷、用戶棄坑這類即時清理接不到的情況。
+
+在 Railway 加一個 cron service（與 web service 同一個 repo）：
+
+| 設定 | 值 |
+|---|---|
+| Start Command | `python scripts/cleanup_storage.py --apply` |
+| Cron Schedule | `0 18 * * *`（UTC，約台灣時間凌晨 2 點） |
+| 環境變數 | 與 web service 相同（至少要 `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`） |
+
+> ⚠️ 別把 cron 設在主 web service 上——cron service 執行完必須結束，web service 要常駐。
+>
+> 首次上線先不加 `--apply` 手動跑一次，確認盤點結果合理再排程。腳本的判定條件同時檢查「夠舊」和「沒被引用」，所以與 `cleanup_user_states.py` 的執行順序無關，也不會誤刪正在流程中的用戶照片。
+
+對話狀態的清理（`scripts/cleanup_user_states.py 24`）可以掛在同一個 cron service，排在 storage 清理之前或之後都可以。

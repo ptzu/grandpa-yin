@@ -1,7 +1,7 @@
 # 系統健檢報告
 
 > 最近更新：2026-08-09
-> 範圍：app.py、features/、services/、models/、message_publisher.py、user_state_manager.py、Procfile、alembic/
+> 範圍：src/（app.py、core/、features/、services/、models/）、Procfile、alembic/
 > 部署環境：Railway（Flask + gunicorn `-w 2 --threads 8`）、Supabase（PostgreSQL + Storage）
 > 前次健檢：2026-07-07（發現 5 大高危 + 8 項中低），修復進度見下方。
 
@@ -48,7 +48,7 @@
 3. 🟡 **推送失敗的自動退點**——「處理成功但 push 失敗」用戶會白扣點，目前靠人工補償。
 4. 🟡 **Supabase connection pooler（port 6543）**——根治連線池上限（連線總量 = 2 processes × pool + 圖片執行緒）。
 5. 🟡 **`transactions` 加 `source/created_by`**——帳目稽核時分辨寫入來源（linebot / admin / 手動 SQL）。
-6. 🟢 **Storage bucket 生命週期清理**——自動刪超過 1 天的孤兒暫存圖。
+6. ✅ **Storage bucket 生命週期清理**（2026-08-10 完成）——兩層：狀態轉換時即時刪掉被取代的暫存圖；`scripts/cleanup_storage.py` 每日掃除「超過 24 小時且無 session 引用」的孤兒物件。Supabase 沒有原生 lifecycle policy，只能自己排程，設定見[部署文件](./DEPLOYMENT.md)的「排程維運」。**尚需在 Railway 建立 cron service 才會真正生效。**
 7. 🟢 **Replicate model ID 改環境變數 + `run_replicate` 加 timeout**——換模型免部署、避免 worker 長時間吊死（`replicate.run()` 無 client-side timeout）。
 
 ---

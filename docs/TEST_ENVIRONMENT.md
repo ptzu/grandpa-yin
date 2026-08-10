@@ -13,6 +13,20 @@
 
 ---
 
+## 〇、離線測試（零依賴，先跑這個）
+
+改動圖片流程／狀態機後，先跑這支：不需要資料庫、LINE channel、Supabase、Replicate，全部以 fake 取代，直接驅動 `FeatureRegistry` 的路由。
+
+```bash
+python3 test/test_image_flow.py
+```
+
+涵蓋：先傳圖問意圖 → 交棒 → 選描述 → 確認扣點的完整路徑，以及取消／換圖／重新描述／點數不足／群組靜默／流程中途切功能等岔路，另含八條中斷路徑都不留 Storage 孤兒圖。全通過會印 `結果：72/72 通過`，任一失敗以非 0 結束（可直接接 CI）。
+
+下面幾章講的是需要真實外部資源的整合測試。
+
+---
+
 ## 二、選一種測試環境
 
 | | 做法 A：本地 standalone（最快） | 做法 B：本地 + 測試 Supabase | 做法 C：Railway 常駐 staging |
@@ -31,7 +45,7 @@
 複製範本後填入**測試環境的值**：
 
 ```bash
-cp env_example.txt .env
+cp .env.example .env
 ```
 
 ### 做法 A：本地 standalone 範本
@@ -95,8 +109,7 @@ python test/setup_test_db.py
 ## 五、本地伺服器（做法 A / B）
 
 ```bash
-cd test
-python start_local_server.py
+./start_local_server.sh
 ```
 
 腳本會自動：啟動 Flask（改碼熱重載）→ 啟動 ngrok（有 `NGROK_DOMAIN` 就用固定網址，否則隨機）→ **自動呼叫 LINE API 設定並驗證 webhook**，不需手動進 Console 填。
@@ -121,7 +134,7 @@ ngrok 免費版每次重啟給隨機網址。到 ngrok Dashboard → Domains 領
 ngrok config add-authtoken <your-token>   # dashboard.ngrok.com 取得
 ```
 
-`start_local_server.py` 讀到 `NGROK_DOMAIN` 就用固定網址 → webhook 網址永久不變，且腳本每次自動重設，Console **填一次永久有效**。
+`start_local_server.sh` 讀到 `NGROK_DOMAIN` 就用固定網址 → webhook 網址永久不變，且腳本每次自動重設，Console **填一次永久有效**。
 
 ---
 

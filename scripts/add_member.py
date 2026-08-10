@@ -11,8 +11,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
-from models.database import init_database
-from services.member_service import MemberService
+from src.models.database import init_database
+from src.services.member_service import MemberService
 
 def add_member():
     """新增會員"""
