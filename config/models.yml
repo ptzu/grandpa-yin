@@ -1,0 +1,68 @@
+# 圖片功能的 AI 模型與點數設定
+#
+# 改完存檔 → commit → push，Railway 自動部署後生效。
+# 設定有誤時服務會在啟動時直接報錯並中止部署，不會帶著壞設定上線。
+#
+# ── 換模型的步驟 ────────────────────────────────────────────────
+# 1. 到 https://replicate.com/explore 找模型，複製它的 ID（作者/模型名）
+# 2. 打開該模型的 API 頁，看它的輸入欄位叫什麼名字
+# 3. 把 model 換掉，並照著調整下面的 input 對應
+#
+# 光換 model 是不夠的：不同模型的欄位名稱不一樣。例如 nano-banana 的圖片
+# 欄位叫 image_input 且吃「陣列」，restore-image 叫 input_image 吃「單張」。
+# 對應沒改的話換完模型會直接失敗。
+#
+# ── 欄位說明 ────────────────────────────────────────────────────
+#   model            Replicate 模型 ID
+#   cost             每次使用扣幾點
+#   loading_seconds  LINE 轉圈動畫顯示幾秒（5 的倍數，5～60；抓比實際處理
+#                    時間略長一點，動畫會在結果送出時自動停止）
+#   input.image_field    圖片要放進模型的哪個欄位
+#   input.image_is_list  該欄位吃陣列（true）還是單一值（false）
+#   input.prompt_field   文字描述放哪個欄位；不吃描述的模型留 null
+#   extra_input          固定附加的參數，照抄模型 API 頁上的欄位名
+#
+# ── 臨時調整 ────────────────────────────────────────────────────
+# 只想改點數或模型、不想部署時，可在 Railway 的 Variables 設環境變數覆寫：
+#   EDIT_COST / COLORIZE_COST / EDIT_MODEL / COLORIZE_MODEL
+# 環境變數優先於這個檔案。欄位對應只能在這裡改。
+
+edit:
+  model: google/nano-banana
+  cost: 5
+  loading_seconds: 45
+  input:
+    image_field: image_input
+    image_is_list: true
+    prompt_field: prompt
+  extra_input:
+    output_format: jpg
+
+colorize:
+  model: flux-kontext-apps/restore-image
+  cost: 10
+  loading_seconds: 30
+  input:
+    image_field: input_image
+    image_is_list: false
+    # 彩色化不送文字描述
+    prompt_field: null
+  extra_input: {}
+
+# ── 其他可用的模型（想換時參考，欄位對應已附上） ──────────────────
+#
+# 圖片編輯：
+#   black-forest-labs/flux-kontext-pro
+#     input: {image_field: input_image, image_is_list: false, prompt_field: prompt}
+#     extra_input: {output_format: jpg}
+#   qwen/qwen-image-edit
+#     input: {image_field: image, image_is_list: false, prompt_field: prompt}
+#
+# 老照片修復／上色：
+#   flux-kontext-apps/restore-image
+#     input: {image_field: input_image, image_is_list: false, prompt_field: null}
+#   tencentarc/gfpgan          （偏人臉修復，不上色）
+#     input: {image_field: img, image_is_list: false, prompt_field: null}
+#
+# 換模型後務必先在本地測一次（見 docs/TEST_ENVIRONMENT.md），
+# 線上換錯欄位的話每次處理都會失敗退點。

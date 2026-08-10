@@ -19,10 +19,11 @@
 |---|---|---|---|
 | 功能選單 | `!功能`、`使用說明` | Quick Reply 選單，引導其餘功能 | — |
 | 照片意圖詢問 | **直接傳照片** | 沒先選功能就上傳的照片由它接住，Quick Reply 問要上色還是修改 | — |
-| 圖片彩色化 | `圖片彩色化` | 上傳黑白照 → AI 自動上色 | `COLORIZE_COST`（預設 10）|
-| 圖片編輯 | `圖片編輯` | 傳圖 → 點選（或自行輸入）編輯描述 → 確認後才扣點 | `EDIT_COST`（預設 5）|
+| 圖片彩色化 | `圖片彩色化` | 上傳黑白照 → AI 自動上色 | 10（可設定）|
+| 圖片編輯 | `圖片編輯` | 傳圖 → 點選（或自行輸入）編輯描述 → 確認後才扣點 | 5（可設定）|
 | 會員／點數 | `會員`、`點數`、`歷史` | 查詢點數餘額與交易記錄 | — |
 
+- **AI 模型與點數都在 `config/models.yml`**，換模型／調價不必改程式碼（見下方）。
 - 新用戶加好友自動建立會員並贈送 `WELCOME_POINTS`（預設 50）點。
 - 圖片以背景非同步處理，不阻塞使用者；多用戶對話狀態持久化於 `grandpa_yin.bot_sessions`。
 - **主要入口是「直接傳照片」**：長輩的心智模型是「處理這張照片」而不是「進入某個功能」。傳統的「先打指令再傳圖」路徑同時保留。
@@ -145,6 +146,7 @@ src/                      ── 核心程式碼
   core/                   跨切面基礎設施（不含領域知識，不依賴 services）
     app_logger.py         帶 request_id 的分級 logger
     error_tracking.py     Sentry 初始化與 context
+    model_config.py       讀 config/models.yml（模型、點數、輸入欄位對應）
     task_executor.py      背景工作的有界執行緒池
   features/               功能模組（繼承 base_feature.BaseFeature）
     context.py            FeatureContext：功能的依賴集合
@@ -163,6 +165,7 @@ src/                      ── 核心程式碼
     account_backend.py    AccountBackend port：standalone / platform 雙模式
   models/                 SQLAlchemy 模型（public.* 共用層 + grandpa_yin.* 產品層）
 
+config/models.yml         AI 模型、點數、模型輸入欄位對應（部署前會自動驗證）
 start_local_server.sh     本地一鍵啟動（Flask + ngrok + 自動設定 webhook）
 scripts/                  管理／排查腳本
 test/                     pytest 套件（離線）＋ setup_test_db.py、test_local.py
@@ -175,6 +178,35 @@ pytest.ini · alembic.ini · Procfile · railway.json · requirements.txt
 ```
 
 依賴方向為單向：`features → services → models`，三者都可依賴 `core`，反向依賴不允許。**外部系統一律經 `services/` 呼叫**——功能層不直接碰 HTTP、SDK 或資料庫。
+
+## 設定 AI 模型與點數
+
+`config/models.yml` 決定每個圖片功能用哪個模型、扣幾點、載入動畫幾秒，以及**該模型的輸入欄位名稱**：
+
+```yaml
+edit:
+  model: google/nano-banana
+  cost: 5
+  loading_seconds: 45
+  input:
+    image_field: image_input    # 這個模型的圖片欄位叫什麼
+    image_is_list: true         # 吃陣列還是單值
+    prompt_field: prompt        # 描述放哪個欄位（不吃描述的填 null）
+  extra_input:
+    output_format: jpg
+```
+
+換模型時**光改 `model` 不夠**：不同模型的欄位名稱不一樣（`nano-banana` 的圖片欄位叫 `image_input` 且吃陣列，`restore-image` 叫 `input_image` 吃單值），`input` 區段要一起調。檔案裡的註解附了幾個常用模型的對應可直接抄。
+
+推之前先驗一次：
+
+```bash
+python3 -m src.core.model_config
+```
+
+會印出每個功能實際生效的模型、點數與欄位對應；設定有誤會指出哪個欄位錯、該怎麼改。同一道檢查掛在 Railway 的 `preDeployCommand`，**設定壞掉會中止部署**，不會上線。
+
+> `EDIT_COST` / `COLORIZE_COST` / `EDIT_MODEL` / `COLORIZE_MODEL` 環境變數優先於設定檔，供線上不部署就調價用。反過來說，Railway 上只要還留著 `EDIT_COST`，改設定檔的點數就不會有效果。
 
 ## 測試
 

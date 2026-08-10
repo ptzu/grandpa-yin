@@ -1,4 +1,3 @@
-import os
 from linebot.models import TextSendMessage, QuickReply, QuickReplyButton, MessageAction
 
 from src.core.app_logger import get_logger
@@ -39,13 +38,7 @@ class EditFeature(ReplicateImageFeature):
     """
 
     trigger_command = "圖片編輯"
-    replicate_model = "google/nano-banana"
     image_waiting_state = STATE_WAITING_IMAGE
-    loading_seconds = 45  # 圖片編輯可能需要更長時間
-
-    def __init__(self, ctx):
-        super().__init__(ctx)
-        self.required_points = int(os.getenv("EDIT_COST", "5"))
 
     @property
     def name(self) -> str:
@@ -303,11 +296,7 @@ class EditFeature(ReplicateImageFeature):
                 user_id,
                 event,
                 deduct_description=f"圖片編輯：{description[:20]}",
-                run=lambda: self.run_replicate({
-                    "prompt": description,
-                    "image_input": [self.image_to_data_url(image_bytes)],
-                    "output_format": "jpg",
-                }),
+                run=lambda: self.run_model(image_bytes, prompt=description),
             )
 
         except Exception:

@@ -68,12 +68,31 @@ Railway 改 Variables **不會**自動重啟舊容器的 process 內快取，改
 | `SUPABASE_SERVICE_ROLE_KEY` | | **service role** key（非 anon key） |
 | `SUPABASE_STORAGE_BUCKET` | | 預設 `linebot-temp-images` |
 | `WELCOME_POINTS` | | 新會員註冊獎勵點數（預設 50） |
-| `COLORIZE_COST` / `EDIT_COST` | | 功能點數費用（預設 10 / 5） |
+| `COLORIZE_COST` / `EDIT_COST` | | **覆寫** `config/models.yml` 的點數（見下方） |
+| `COLORIZE_MODEL` / `EDIT_MODEL` | | **覆寫** `config/models.yml` 的模型 ID |
 | `SENTRY_DSN` | | 留空則不啟用 Sentry |
 | `SENTRY_ENVIRONMENT` | | `production` / `staging` |
 | `IMAGE_WORKERS` / `IMAGE_QUEUE_LIMIT` | | 圖片處理併發（預設 4 / 8） |
 
 > `.env` 不可 commit（已在 `.gitignore`）；各環境變數在 Railway 各自設定。
+
+### AI 模型與點數：`config/models.yml`
+
+圖片編輯／彩色化用哪個模型、扣幾點、載入動畫幾秒，以及**該模型的輸入欄位名稱**，都在 `config/models.yml`。改完 push 即生效，不必改程式碼。
+
+換模型時光改 `model` 是不夠的——不同模型的欄位名稱不一樣（`nano-banana` 的圖片欄位叫 `image_input` 且吃陣列，`restore-image` 叫 `input_image` 吃單值），所以 `input` 區段要一起調。檔案內的註解附了幾個常用模型的對應可直接抄。
+
+**推之前先驗**：
+
+```bash
+python3 -m src.core.model_config
+```
+
+印出每個功能實際生效的模型、點數與欄位對應；設定有誤會列出哪個欄位錯、該怎麼改，並以非 0 結束。
+
+同一道檢查掛在 Railway 的 `preDeployCommand`（見 `railway.json`）：**設定有誤會中止部署**，不會帶著壞設定上線。這道防線是必要的——應用程式本身會吞掉啟動錯誤並在每次請求重試，少了它，壞設定會讓服務看起來活著、但每個 webhook 都回 500。
+
+> 上表的 `*_COST` / `*_MODEL` 環境變數**優先於設定檔**，用於線上不部署就調價。反過來說，只要 Railway 上還留著 `EDIT_COST`，改 `config/models.yml` 的點數就不會有效果——調完記得把變數移除。`python3 -m src.core.model_config` 印的是套用覆寫後的實際值，可用來確認。
 
 ---
 

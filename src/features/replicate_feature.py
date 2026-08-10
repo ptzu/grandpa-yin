@@ -1,6 +1,7 @@
 from linebot.models import TextSendMessage, ImageSendMessage
 
 from src.core.app_logger import get_logger
+from src.core.model_config import get_model_config
 from .base_feature import BaseFeature, _UNSET
 from .feature_registry import is_global_command
 
@@ -18,20 +19,25 @@ class ReplicateImageFeature(BaseFeature):
     接起來。金流編排與 API 呼叫本身都不在這裡。
 
     子類別需定義：
-      - name（property）：功能名稱，同時作為扣點的 feature_type
+      - name（property）：功能名稱，同時作為扣點的 feature_type，也是
+        config/models.yml 裡對應的區段名稱
       - trigger_command：觸發功能的訊息文字（例：「圖片彩色化」）
-      - replicate_model：Replicate 模型 ID
-      - required_points：在 __init__ 從環境變數讀取
       - image_waiting_state：等待用戶上傳圖片的狀態名稱
       - handle_text / handle_image：功能各自的流程
-    可選覆寫：
-      - loading_seconds：載入動畫秒數（預設 30）
+
+    模型 ID、點數、載入秒數與模型的輸入欄位對應都來自 config/models.yml，
+    不寫在程式碼裡（換模型／調價不必改碼）。
     """
 
     trigger_command = None
-    replicate_model = None
     image_waiting_state = None
-    loading_seconds = 30
+
+    def __init__(self, ctx):
+        super().__init__(ctx)
+        self.config = get_model_config(self.name)
+        self.replicate_model = self.config.model
+        self.required_points = self.config.cost
+        self.loading_seconds = self.config.loading_seconds
 
     def can_handle(self, message: str, user_id: str, user_state=_UNSET) -> bool:
         """觸發指令或用戶已在本功能狀態中"""
@@ -161,6 +167,12 @@ class ReplicateImageFeature(BaseFeature):
         """呼叫本功能的 Replicate 模型並取得結果圖片 URL"""
         return self.replicate.run(self.replicate_model, input_dict)
 
-    def image_to_data_url(self, image_bytes: bytes) -> str:
-        """將圖片 bytes 轉為 Replicate 接受的 base64 data URL"""
-        return self.replicate.image_to_data_url(image_bytes)
+    def build_model_input(self, image_bytes: bytes, prompt: str = None) -> dict:
+        """依設定檔的欄位對應組出模型輸入（不同模型欄位名稱不同）"""
+        return self.config.build_input(
+            self.replicate.image_to_data_url(image_bytes), prompt=prompt
+        )
+
+    def run_model(self, image_bytes: bytes, prompt: str = None) -> str:
+        """組輸入 → 呼叫模型 → 取得結果圖片 URL"""
+        return self.run_replicate(self.build_model_input(image_bytes, prompt=prompt))

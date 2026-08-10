@@ -1,4 +1,3 @@
-import os
 from linebot.models import TextSendMessage
 
 from src.core.app_logger import get_logger
@@ -11,13 +10,7 @@ class ColorizeFeature(ReplicateImageFeature):
     """圖片彩色化功能處理器"""
 
     trigger_command = "圖片彩色化"
-    replicate_model = "flux-kontext-apps/restore-image"
     image_waiting_state = "waiting"
-    loading_seconds = 30
-
-    def __init__(self, ctx):
-        super().__init__(ctx)
-        self.required_points = int(os.getenv("COLORIZE_COST", "10"))
 
     @property
     def name(self) -> str:
@@ -102,9 +95,7 @@ class ColorizeFeature(ReplicateImageFeature):
                 user_id,
                 event,
                 deduct_description="彩色化圖片",
-                run=lambda: self.run_replicate({
-                    "input_image": self.image_to_data_url(image_bytes),
-                }),
+                run=lambda: self.run_model(image_bytes),
             )
 
         except Exception:

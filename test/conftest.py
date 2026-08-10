@@ -10,12 +10,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Feature costs are read from env at construction time — pin them for determinism
-os.environ.setdefault("COLORIZE_COST", "10")
-os.environ.setdefault("EDIT_COST", "5")
-
 import pytest
 
+from src.core.model_config import get_model_config
 from src.services import billing as billing_module
 from src.services.billing import BillingService
 from src.features.context import FeatureContext
@@ -29,8 +26,13 @@ from src.features.photo_intent_feature import PhotoIntentFeature
 USER = "U-test-user"
 FAKE_OUTPUT_URL = "https://example.test/output.jpg"
 IMAGE_BYTES = b"\xff\xd8fake-jpeg"
-COLORIZE_COST = 10
-EDIT_COST = 5
+
+# Read from the shipped config/models.yml, so the suite asserts against whatever
+# is actually configured — and fails loudly if that file stops being valid.
+COLORIZE_CONFIG = get_model_config("colorize")
+EDIT_CONFIG = get_model_config("edit")
+COLORIZE_COST = COLORIZE_CONFIG.cost
+EDIT_COST = EDIT_CONFIG.cost
 
 
 # ---------------------------------------------------------------- fakes
