@@ -183,15 +183,34 @@ SUPABASE_STORAGE_BUCKET=linebot-temp-images
 >
 > 模型、點數、贈點走 `config/settings.yml`，**不要**在 Railway 設 `EDIT_COST` / `COLORIZE_COST` / `WELCOME_POINTS`，否則之後改設定檔會看不出效果。
 
-### 5.6 建表
+### 5.6 建表 —— 自動完成，不必手動
 
-新資料庫是空的，直接 upgrade：
+**第一次部署就會自動建表**，你不需要做任何事。Railway 的 `preDeployCommand`（見 `railway.json`）每次部署都會跑：
 
-```bash
-DATABASE_URL=<5.2 的連線字串> alembic upgrade head
+```
+python -m src.core.settings && alembic upgrade head
 ```
 
-建出 `grandpa_yin.subjects` / `wallet_transactions` / `bot_sessions` / `usage_logs` / `user_profiles`，**無任何 Altide 依賴**。
+空的 Supabase 專案會被建出：
+
+```
+grandpa_yin | subjects             帳號（standalone 身份）
+grandpa_yin | wallet_transactions  點數流水
+grandpa_yin | bot_sessions         對話狀態
+grandpa_yin | usage_logs           功能使用紀錄
+grandpa_yin | user_profiles        暱稱、狀態
+grandpa_yin | alembic_version      版本記錄
+```
+
+連 `grandpa_yin` schema 本身也會自動建（`alembic/env.py` 與 baseline migration 各有一道 `CREATE SCHEMA IF NOT EXISTS`），Supabase 那邊不必先準備任何東西。standalone 下整合 migration 會偵測到沒有 `public.accounts` 而跳過補外鍵，建出來的表**無任何 Altide 依賴**。
+
+**唯一的順序要求**：`DATABASE_URL` 要在該次部署**開始之前**就設好。先 push 後補變數的話，第一次部署會在 preDeploy 階段失敗——好消息是它會**中止部署**，不會帶著沒有表的狀態上線；補上變數後 Redeploy 即可。
+
+> 想在部署前先確認連線字串是對的，可以本地手動跑一次（非必要，只是失敗訊息看得比較快）：
+> ```bash
+> DATABASE_URL=<5.2 的連線字串> alembic upgrade head
+> ```
+> 這是冪等的，之後部署再跑一次也不會有事。
 
 > ⚠️ **不要**在空資料庫上跑 `alembic stamp head`。stamp 是「表已經存在、只缺版本記錄」時用的（見 6.1）；在空庫上 stamp 會讓 Alembic 以為表都建好了，結果一張都沒有，服務起來後每個請求都炸。
 
