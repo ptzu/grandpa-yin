@@ -1,5 +1,5 @@
-import os
 from src.core.app_logger import get_logger
+from src.core.settings import get_model_config
 from .base_feature import BaseFeature
 from linebot.models import TextSendMessage, QuickReply, QuickReplyButton, MessageAction
 
@@ -62,8 +62,9 @@ class MenuFeature(BaseFeature):
     
     def _handle_help(self, reply_token: str, user_name: str, user_id: str, event: dict) -> dict:
         """處理使用說明"""
-        colorize_cost = int(os.getenv("COLORIZE_COST", "10"))
-        edit_cost = int(os.getenv("EDIT_COST", "5"))
+        # 讀同一份設定，說明文案才不會跟實際扣款金額對不上
+        colorize_cost = get_model_config("colorize").cost
+        edit_cost = get_model_config("edit").cost
         help_message = f"""{user_name} 你好！✨
 ❓ 使用說明
 

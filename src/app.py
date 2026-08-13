@@ -13,8 +13,13 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from src.core.app_logger import get_logger, request_id_var
 from src.core.error_tracking import init_sentry, set_request_context
+from src.core.settings import get_member_settings
+from src.services.billing import BillingService
 from src.services.message_publisher import MessagePublisher
+from src.services.line_client import LineClient
+from src.services.replicate_client import ReplicateClient
 from src.services.user_state_manager import UserStateManager
+from src.features.context import FeatureContext
 from src.features.feature_registry import FeatureRegistry
 from src.features.menu_feature import MenuFeature
 from src.features.colorize_feature import ColorizeFeature
@@ -91,9 +96,11 @@ def init():
         logger.warning("未設定 DATABASE_URL，會員功能將不可用")
 
     # 4. 初始化 LINE Bot API 與各組件
-    line_bot_api = LineBotApi(os.getenv("CHANNEL_ACCESS_TOKEN"))
+    channel_access_token = os.getenv("CHANNEL_ACCESS_TOKEN")
+    line_bot_api = LineBotApi(channel_access_token)
     handler = WebhookHandler(os.getenv("CHANNEL_SECRET"))
     publisher = MessagePublisher(line_bot_api)
+    line_client = LineClient(line_bot_api, channel_access_token)
     user_state_manager = UserStateManager()
 
     # 5. 創建會員服務（如果資料庫可用）
@@ -113,19 +120,30 @@ def init():
     else:
         logger.warning("Supabase Storage 未設定，圖片編輯將以 base64 暫存於資料庫 state")
 
-    # 7. 註冊所有功能
+    # 7. 組裝功能的依賴（新增依賴只要加在 FeatureContext，不必動每個 feature 的建構子）
+    ctx = FeatureContext(
+        line=line_client,
+        publisher=publisher,
+        state_manager=user_state_manager,
+        billing=BillingService(member_service, publisher),
+        replicate=ReplicateClient(),
+        member_service=member_service,
+        storage_service=storage_service,
+    )
+
+    # 8. 註冊所有功能
     feature_registry = FeatureRegistry(user_state_manager)
-    feature_registry.register(MenuFeature(line_bot_api, publisher, user_state_manager, member_service, storage_service))
-    feature_registry.register(ColorizeFeature(line_bot_api, publisher, user_state_manager, member_service, storage_service))
-    feature_registry.register(EditFeature(line_bot_api, publisher, user_state_manager, member_service, storage_service))
+    feature_registry.register(MenuFeature(ctx))
+    feature_registry.register(ColorizeFeature(ctx))
+    feature_registry.register(EditFeature(ctx))
 
     # 註冊會員功能（如果會員服務可用）
     if member_service:
-        feature_registry.register(MemberFeature(line_bot_api, publisher, user_state_manager, member_service, storage_service))
+        feature_registry.register(MemberFeature(ctx))
 
     # 圖片路由的 catch-all：沒先選功能就上傳的照片由它接住並詢問意圖。
     # 必須最後註冊，否則會搶在 colorize / edit 之前接走圖片。
-    feature_registry.register(PhotoIntentFeature(line_bot_api, publisher, user_state_manager, member_service, storage_service))
+    feature_registry.register(PhotoIntentFeature(ctx))
 
     feature_names = [f.name for f in feature_registry.get_all_features()]
     logger.info(f"已註冊 {len(feature_names)} 個功能: {', '.join(feature_names)}")
@@ -285,7 +303,7 @@ def handle_follow_event(event):
 
         # 註冊獎勵：grant_signup_bonus 內部以 row lock + 交易記錄檢查保證
         # 同一帳號只發放一次（防止 LINE 重送或快速解除封鎖再加回刷點數）
-        welcome_points = int(os.getenv("WELCOME_POINTS", "0"))
+        welcome_points = get_member_settings().welcome_points
         bonus_granted = False
         if welcome_points > 0:
             bonus_granted = member_service.grant_signup_bonus(user_id, welcome_points)

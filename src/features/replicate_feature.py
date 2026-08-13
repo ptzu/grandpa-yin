@@ -1,41 +1,43 @@
-import os
-import base64
-import requests
-import replicate
 from linebot.models import TextSendMessage, ImageSendMessage
 
 from src.core.app_logger import get_logger
-from src.core.task_executor import submit_image_task
+from src.core.settings import get_model_config
 from .base_feature import BaseFeature, _UNSET
 from .feature_registry import is_global_command
 
 logger = get_logger("replicate_feature")
 
 MAINTENANCE_MESSAGE = "⚠️ 系統維護中，功能暫時無法使用，請稍後再試 🙏"
+PROCESSING_FAILURE_MESSAGE = "處理圖片時發生錯誤，點數已退還，請稍後再試 🙏"
 
 
 class ReplicateImageFeature(BaseFeature):
     """Replicate 圖片功能的共用基底。
 
-    收攏所有 Replicate 功能共用的建材：觸發判斷、會員/點數 guard、
-    圖片下載、載入動畫、「扣點 → 處理 → 失敗退點 → 推送結果」流程、
-    Replicate 呼叫與回傳解析。
+    只負責這類功能共通的「對話面」：觸發判斷、會員/點數 guard、交棒入口，
+    以及把計費（services.billing）與模型呼叫（services.replicate_client）
+    接起來。金流編排與 API 呼叫本身都不在這裡。
 
     子類別需定義：
-      - name（property）：功能名稱，同時作為扣點的 feature_type
+      - name（property）：功能名稱，同時作為扣點的 feature_type，也是
+        config/settings.yml 裡對應的區段名稱
       - trigger_command：觸發功能的訊息文字（例：「圖片彩色化」）
-      - replicate_model：Replicate 模型 ID
-      - required_points：在 __init__ 從環境變數讀取
       - image_waiting_state：等待用戶上傳圖片的狀態名稱
       - handle_text / handle_image：功能各自的流程
-    可選覆寫：
-      - loading_seconds：載入動畫秒數（預設 30）
+
+    模型 ID、點數、載入秒數與模型的輸入欄位對應都來自 config/settings.yml，
+    不寫在程式碼裡（換模型／調價不必改碼）。
     """
 
     trigger_command = None
-    replicate_model = None
     image_waiting_state = None
-    loading_seconds = 30
+
+    def __init__(self, ctx):
+        super().__init__(ctx)
+        self.config = get_model_config(self.name)
+        self.replicate_model = self.config.model
+        self.required_points = self.config.cost
+        self.loading_seconds = self.config.loading_seconds
 
     def can_handle(self, message: str, user_id: str, user_state=_UNSET) -> bool:
         """觸發指令或用戶已在本功能狀態中"""
@@ -127,118 +129,50 @@ class ReplicateImageFeature(BaseFeature):
 
     def start_loading_animation(self, user_id: str):
         """發送 LINE 載入動畫；失敗不影響主流程"""
-        try:
-            response = requests.post(
-                "https://api.line.me/v2/bot/chat/loading/start",
-                headers={
-                    'Content-Type': 'application/json',
-                    'Authorization': f'Bearer {os.getenv("CHANNEL_ACCESS_TOKEN")}',
-                },
-                json={"chatId": user_id, "loadingSeconds": self.loading_seconds},
-                timeout=(3, 10),
-            )
-            if response.status_code != 200:
-                logger.warning(f"載入動畫啟動失敗: {response.status_code} - {response.text}")
-        except Exception as e:
-            logger.warning(f"啟動載入動畫時發生錯誤: {str(e)}")
+        self.line.start_loading_animation(user_id, self.loading_seconds)
 
     def submit_billed_processing(self, user_id, event, deduct_description, run) -> bool:
-        """「先扣點 → run() 產出結果圖 URL → 推送；失敗退點」的完整計費流程。
+        """扣點跑 run()，成功就把結果圖推給用戶。
 
-        提交到共用的有界執行緒池；容量滿時回覆繁忙訊息並清除狀態。
+        金流（扣點／失敗退點／滿載降級）由 BillingService 負責；這裡只補上
+        「圖片功能」專屬的部分：結果如何呈現、結束後清狀態。
 
         Args:
             run: 無參數 callable，回傳結果圖片 URL（在背景執行緒中執行）
         """
-        def task():
-            try:
-                # 先扣點，扣不到就不處理（避免先服務後扣點被免費使用）
-                if not self.member_service.deduct_points(
-                    user_id,
-                    self.required_points,
-                    deduct_description,
-                    feature_type=self.name,
-                ):
-                    self.publisher.process_push_message(
-                        user_id,
-                        TextSendMessage(text="❌ 點數不足或扣點失敗，本次未進行處理。\n請輸入「點數」查看剩餘點數。"),
-                        event
-                    )
-                    return
-
-                try:
-                    output_url = run()
-                except Exception as e:
-                    # 處理失敗 → 退點並留下 failed 稽核記錄
-                    logger.exception(f"{self.name} 處理失敗，退還點數: {user_id}")
-                    self.member_service.refund_points(
-                        user_id, self.required_points,
-                        feature_type=self.name, reason=str(e)
-                    )
-                    self.publisher.process_push_message(
-                        user_id,
-                        TextSendMessage(text="處理圖片時發生錯誤，點數已退還，請稍後再試 🙏"),
-                        event
-                    )
-                    return
-
-                # 推送結果圖片（載入動畫會自動停止）
-                self.publisher.process_push_message(
-                    user_id,
-                    ImageSendMessage(
-                        original_content_url=output_url,
-                        preview_image_url=output_url
-                    ),
-                    event
-                )
-            finally:
-                self.clear_user_state(user_id)
-                logger.info(f"用戶 {user_id} {self.name} 處理完成，狀態已重置")
-
-        if not submit_image_task(task):
-            # 執行緒池容量滿：優雅降級
-            self.clear_user_state(user_id)
+        def deliver(output_url):
+            # 推送結果圖片（載入動畫會自動停止）
             self.publisher.process_push_message(
                 user_id,
-                TextSendMessage(text="目前使用人數較多，請稍後再試 🙏"),
+                ImageSendMessage(
+                    original_content_url=output_url,
+                    preview_image_url=output_url
+                ),
                 event
             )
-            return False
-        return True
+
+        return self.billing.submit(
+            user_id=user_id,
+            event=event,
+            points=self.required_points,
+            feature_type=self.name,
+            description=deduct_description,
+            run=run,
+            on_success=deliver,
+            on_finish=lambda: self.clear_user_state(user_id),
+            failure_message=PROCESSING_FAILURE_MESSAGE,
+        )
 
     def run_replicate(self, input_dict: dict) -> str:
-        """呼叫 Replicate 模型並解析出結果圖片 URL"""
-        logger.debug(f"呼叫模型: {self.replicate_model}, input keys: {list(input_dict.keys())}")
-        try:
-            output = replicate.run(self.replicate_model, input=input_dict)
-        except Exception as e:
-            logger.error(f"Replicate API 錯誤: {str(e)}")
-            if "Insufficient credit" in str(e):
-                raise Exception("Replicate 點數不足，請前往 https://replicate.com/account/billing 儲值") from e
-            raise
+        """呼叫本功能的 Replicate 模型並取得結果圖片 URL"""
+        return self.replicate.run(self.replicate_model, input_dict)
 
-        logger.debug(f"API 回應類型: {type(output)}, 內容: {output}")
-        url = self._extract_output_url(output)
-        if not url:
-            raise Exception("Replicate API 沒有回傳結果")
-        return url
+    def build_model_input(self, image_bytes: bytes, prompt: str = None) -> dict:
+        """依設定檔的欄位對應組出模型輸入（不同模型欄位名稱不同）"""
+        return self.config.build_input(
+            self.replicate.image_to_data_url(image_bytes), prompt=prompt
+        )
 
-    @staticmethod
-    def _extract_output_url(output):
-        """從 Replicate 回傳值解析 URL（支援字串 / 列表 / FileOutput 物件）"""
-        if not output:
-            return None
-        if isinstance(output, str):
-            return output
-        if isinstance(output, list):
-            return ReplicateImageFeature._extract_output_url(output[0]) if output else None
-        url_attr = getattr(output, 'url', None)
-        if url_attr is not None:
-            return url_attr() if callable(url_attr) else url_attr
-        return str(output)
-
-    @staticmethod
-    def image_to_data_url(image_bytes: bytes) -> str:
-        """將圖片 bytes 轉為 Replicate 接受的 base64 data URL"""
-        image_b64 = base64.b64encode(image_bytes).decode('utf-8')
-        return f"data:image/jpeg;base64,{image_b64}"
+    def run_model(self, image_bytes: bytes, prompt: str = None) -> str:
+        """組輸入 → 呼叫模型 → 取得結果圖片 URL"""
+        return self.run_replicate(self.build_model_input(image_bytes, prompt=prompt))

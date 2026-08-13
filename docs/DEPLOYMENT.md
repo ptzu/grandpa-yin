@@ -36,7 +36,9 @@ LINE Platform ──► Railway (Flask /webhook, gunicorn -w 2 --threads 8)
 
 切換點集中在 `src/services/account_backend.py`（`AccountBackend` port + 兩個 adapter），業務邏輯只認 port。細節見[開發日誌](./DEVELOPMENT_LOG.md)。
 
-線上目前跑 **platform** 模式，與 Altide 共用帳號層。
+**要從零建一套獨立環境（新的 Supabase 專案、不依賴 Altide）看第五章**，那裡是完整的 standalone 建置流程。
+
+> 目前線上跑哪個模式，以 Railway Variables 的 `DEPLOY_MODE` 為準（未設定＝`platform`）。除錯 SQL 也分兩套，見第七章——**表名與欄位不同，別照抄錯的那套**。
 
 ---
 
@@ -46,6 +48,8 @@ LINE Platform ──► Railway (Flask /webhook, gunicorn -w 2 --threads 8)
 2. **設定環境變數**（Variables，見第四章清單）。
 3. Push 到 `main` 即自動部署（啟動指令見 `Procfile`）。
 4. 將 Railway 網域設為 LINE Webhook：`https://<your-app>.up.railway.app/webhook`，並在 LINE Console 開啟 **Use webhook**。
+
+> 從零建一套全新的獨立環境（含新的 Supabase 專案）請走**第五章**，那裡有含 Supabase 設定、連線方式、建表與驗收的完整順序。本章只講 Railway 這一側。
 
 > ⚠️ **Railway 陷阱**：若曾在 Settings → Deploy → **Custom Start Command** 手動填過啟動指令，它會**覆蓋 `Procfile`**。改 `Procfile` 卻沒生效時先查這裡。
 
@@ -63,29 +67,172 @@ Railway 改 Variables **不會**自動重啟舊容器的 process 內快取，改
 | `CHANNEL_SECRET` | ✅ | LINE channel secret（webhook 簽章驗證用） |
 | `REPLICATE_API_TOKEN` | ✅ | Replicate API token（會計費） |
 | `DATABASE_URL` | ✅ | Postgres 連線字串（見第五章） |
-| `DEPLOY_MODE` | | `platform`（預設）/ `standalone` |
+| `DEPLOY_MODE` | | `platform`（**未設定時的預設**）/ `standalone`。獨立環境**必須明寫** `standalone` |
 | `SUPABASE_URL` | | Supabase 專案 URL（圖片 Storage） |
-| `SUPABASE_SERVICE_ROLE_KEY` | | **service role** key（非 anon key） |
+| `SUPABASE_SERVICE_ROLE_KEY` | | **service role / secret** key（非 anon / publishable key） |
 | `SUPABASE_STORAGE_BUCKET` | | 預設 `linebot-temp-images` |
-| `WELCOME_POINTS` | | 新會員註冊獎勵點數（預設 50） |
-| `COLORIZE_COST` / `EDIT_COST` | | 功能點數費用（預設 10 / 5） |
+| `WELCOME_POINTS` | | **覆寫** `config/settings.yml` 的新會員贈點 |
+| `COLORIZE_COST` / `EDIT_COST` | | **覆寫** `config/settings.yml` 的點數（見下方） |
+| `COLORIZE_MODEL` / `EDIT_MODEL` | | **覆寫** `config/settings.yml` 的模型 ID |
 | `SENTRY_DSN` | | 留空則不啟用 Sentry |
 | `SENTRY_ENVIRONMENT` | | `production` / `staging` |
 | `IMAGE_WORKERS` / `IMAGE_QUEUE_LIMIT` | | 圖片處理併發（預設 4 / 8） |
 
 > `.env` 不可 commit（已在 `.gitignore`）；各環境變數在 Railway 各自設定。
 
+### 營運設定：`config/settings.yml`
+
+用哪個模型、扣幾點、載入動畫幾秒、**該模型的輸入欄位名稱**，以及新會員贈幾點，都在 `config/settings.yml`。改完 push 即生效，不必改程式碼。
+
+換模型時光改 `model` 是不夠的——不同模型的欄位名稱不一樣（`nano-banana` 的圖片欄位叫 `image_input` 且吃陣列，`restore-image` 叫 `input_image` 吃單值），所以 `input` 區段要一起調。檔案內的註解附了幾個常用模型的對應可直接抄。
+
+**推之前先驗**：
+
+```bash
+python3 -m src.core.settings
+```
+
+印出每個功能實際生效的模型、點數與欄位對應；設定有誤會列出哪個欄位錯、該怎麼改，並以非 0 結束。
+
+同一道檢查掛在 Railway 的 `preDeployCommand`（見 `railway.json`）：**設定有誤會中止部署**，不會帶著壞設定上線。這道防線是必要的——應用程式本身會吞掉啟動錯誤並在每次請求重試，少了它，壞設定會讓服務看起來活著、但每個 webhook 都回 500。
+
+> 上表的 `*_COST` / `*_MODEL` 環境變數**優先於設定檔**，用於線上不部署就調價。反過來說，只要 Railway 上還留著 `EDIT_COST`，改 `config/settings.yml` 的點數就不會有效果——調完記得把變數移除。`python3 -m src.core.settings` 印的是套用覆寫後的實際值，可用來確認。
+
 ---
 
-## 五、取得 Supabase `DATABASE_URL`
+## 五、從零建立：standalone 上線（新 Supabase 專案）
 
-1. [Supabase](https://supabase.com/) → **New Project**（Region 選 Tokyo / Singapore，Free 方案即可）。
-2. 建立時設定的 **Database Password** 請保存。
-3. **Settings → Database → Connection string → URI**，複製如下格式，把 `[YOUR-PASSWORD]` 換成密碼：
-   ```
-   postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-ID].supabase.co:5432/postgres
-   ```
-4. 高併發時改用 **connection pooler**（port **6543** 的 transaction pooler）連線字串，避免吃到 DB 直連上限。
+完全獨立於 Altide 的建置流程。全部做完約 20 分鐘。
+
+### 5.1 建立 Supabase 專案
+
+[Supabase](https://supabase.com/) → **New Project**，Free 方案即可。
+
+**Region — 別照畫面上的建議選**
+
+建立頁面寫「Select the region closest to your users」，**這句話對本架構是誤導**。長輩的手機連的是 LINE 與 Railway，**不會直接連 Supabase**；真正高頻往返的是 Railway ↔ Supabase（每則訊息查 2～3 次資料庫：對話狀態、會員、扣點）。
+
+所以要選的是**離 Railway 最近**的區域：
+
+| Railway 專案的 region | Supabase 選 |
+|---|---|
+| `asia-southeast1`（新加坡） | Southeast Asia (Singapore) |
+| `us-west1` / `us-east4`（**Railway 預設**） | 對應的 US 區，或把 Railway 一併搬到新加坡 |
+
+> Railway 的 region 在 Service → Settings → Deploy → Region。選錯的代價是每則訊息多繞幾趟太平洋，體感明顯。
+
+**Security 三個勾選項**
+
+| 選項 | 設定 | 為什麼 |
+|---|---|---|
+| Enable Data API | **關** | 本專案只用「直連 Postgres」與「Storage API（`/storage/v1/`）」，完全沒用到 Data API（`/rest/v1/`）。關掉少一個對外入口 |
+| Automatically expose new tables | **關** | Supabase 官方也建議關 |
+| Enable automatic RLS | **開** | 對本專案零影響（只作用於 `public` schema，我們的表在 `grandpa_yin`；後端的 postgres 角色與 service role 本來就繞過 RLS）。萬一日後 Data API 被打開，表也不會裸奔 |
+
+> 若這個 Supabase 專案日後還要給網頁前端用 `supabase-js` 存取，那 Data API 才需要開。純跑這支 bot 不需要。
+
+建立時設定的 **Database Password** 請保存，等一下組連線字串要用。
+
+### 5.2 取得 `DATABASE_URL` — 用 Session pooler
+
+**Connect → Session pooler** 那條字串，把 `[YOUR-PASSWORD]` 換成密碼：
+
+```
+postgresql://postgres.[PROJECT-REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:5432/postgres
+```
+
+三種連線方式的差別：
+
+| 方式 | 適不適用本專案 |
+|---|---|
+| **Session pooler**（pooler 主機 :5432） | ✅ **用這個**。支援 IPv4，且相容 SQLAlchemy 的連線池與 prepared statement |
+| Direct connection（`db.xxx.supabase.co:5432`） | ⚠️ 新專案**只支援 IPv6**；且本服務是長駐 gunicorn（2 workers × pool 5 + overflow 10，再加圖片背景執行緒），直連容易撞上限 |
+| Transaction pooler（:6543） | ❌ 給 serverless 用；不支援 prepared statement，與 SQLAlchemy 預設行為衝突 |
+
+> 這一步順帶解掉[系統健檢](./HEALTH_CHECK.md)裡「連線池上限」那項待辦——新環境直接用對的連線方式，不必事後補。
+
+### 5.3 建立 Storage bucket
+
+**Storage → New bucket**：
+
+| 設定 | 值 |
+|---|---|
+| 名稱 | `linebot-temp-images`（要與 `SUPABASE_STORAGE_BUCKET` 一致） |
+| Public bucket | **關**（維持 Private） |
+
+Private 就夠：圖片只由後端以 service role 讀寫，**結果圖的 URL 來自 Replicate 而非 Supabase**，不需要公開存取。
+
+### 5.4 取得 Storage 用的 key
+
+**Settings → API Keys**，取 **service_role**（新專案顯示為 **secret**，`sb_secret_...`）那一把，填入 `SUPABASE_SERVICE_ROLE_KEY`。
+
+> ⚠️ 別拿成 anon / publishable 那把——它受 RLS 限制，Storage 讀寫會失敗。service role key **等同資料庫的完整權限**，只能放在後端環境變數，絕不可進前端或 commit。
+
+### 5.5 設定 Railway 環境變數
+
+除了第四章的必填項，standalone 額外要設：
+
+```
+DEPLOY_MODE=standalone
+SUPABASE_URL=https://[PROJECT-REF].supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<5.4 取得的 key>
+SUPABASE_STORAGE_BUCKET=linebot-temp-images
+```
+
+> `DEPLOY_MODE` **未設定時預設是 `platform`**，會去找 Altide 的 `public.accounts`——新專案沒有那些表，會直接失敗。這是最容易漏的一項。
+>
+> 模型、點數、贈點走 `config/settings.yml`，**不要**在 Railway 設 `EDIT_COST` / `COLORIZE_COST` / `WELCOME_POINTS`，否則之後改設定檔會看不出效果。
+
+### 5.6 建表 —— 自動完成，不必手動
+
+**第一次部署就會自動建表**，你不需要做任何事。Railway 的 `preDeployCommand`（見 `railway.json`）每次部署都會跑：
+
+```
+python -m src.core.settings && alembic upgrade head
+```
+
+空的 Supabase 專案會被建出：
+
+```
+grandpa_yin | subjects             帳號（standalone 身份）
+grandpa_yin | wallet_transactions  點數流水
+grandpa_yin | bot_sessions         對話狀態
+grandpa_yin | usage_logs           功能使用紀錄
+grandpa_yin | user_profiles        暱稱、狀態
+grandpa_yin | alembic_version      版本記錄
+```
+
+連 `grandpa_yin` schema 本身也會自動建（`alembic/env.py` 與 baseline migration 各有一道 `CREATE SCHEMA IF NOT EXISTS`），Supabase 那邊不必先準備任何東西。standalone 下整合 migration 會偵測到沒有 `public.accounts` 而跳過補外鍵，建出來的表**無任何 Altide 依賴**。
+
+**唯一的順序要求**：`DATABASE_URL` 要在該次部署**開始之前**就設好。先 push 後補變數的話，第一次部署會在 preDeploy 階段失敗——好消息是它會**中止部署**，不會帶著沒有表的狀態上線；補上變數後 Redeploy 即可。
+
+> 想在部署前先確認連線字串是對的，可以本地手動跑一次（非必要，只是失敗訊息看得比較快）：
+> ```bash
+> DATABASE_URL=<5.2 的連線字串> alembic upgrade head
+> ```
+> 這是冪等的，之後部署再跑一次也不會有事。
+
+> ⚠️ **不要**在空資料庫上跑 `alembic stamp head`。stamp 是「表已經存在、只缺版本記錄」時用的（見 6.1）；在空庫上 stamp 會讓 Alembic 以為表都建好了，結果一張都沒有，服務起來後每個請求都炸。
+
+之後每次部署，Railway 的 `preDeployCommand` 會自動 `alembic upgrade head`，這一步只有第一次要手動做。
+
+### 5.7 驗收清單
+
+```bash
+python3 -m src.core.settings          # 設定檔正常？印出實際生效的模型與點數
+```
+
+部署後在 LINE 依序試：
+
+| 動作 | 預期 |
+|---|---|
+| 加好友 | 收到歡迎訊息，含贈送的點數 |
+| 輸入「點數」 | 顯示餘額（＝`config/settings.yml` 的 `welcome_points`） |
+| **直接傳一張照片** | 跳出「上色／修改／取消」選單 → 代表 Storage 通了 |
+| 選「幫照片上色」 | 扣點 → 收到成品圖 |
+| 再輸入「歷史」 | 看得到剛才那筆扣點紀錄 |
+
+任一步卡住，對照第七章的事故速查。傳照片沒反應 → 多半是 Storage bucket 名稱或 key 錯（此時服務會退回 base64 模式並在 log 留 warning）。
 
 ---
 
@@ -100,7 +247,7 @@ schema 分兩層、各自管理：
 
 **改動流程**：改 `src/models/*.py` → `alembic revision --autogenerate -m "描述"` → **檢視產生的 migration** → commit → push（model 與 migration 檔要一起 push）。
 
-### 首次導入（線上 DB 已有 grandpa_yin.* 表時，只做一次）
+### 6.1 首次導入（**線上 DB 已有** grandpa_yin.* 表時，只做一次）
 
 表若早已由 `schema.sql` 建好、但還沒 Alembic 版本記錄，第一次啟用前要先標記 baseline，否則 `upgrade` 會嘗試重建已存在的表而失敗：
 
@@ -108,7 +255,9 @@ schema 分兩層、各自管理：
 DATABASE_URL=<線上連線字串> alembic stamp head
 ```
 
-### 全新資料庫的初始化順序（外鍵依賴）
+> ⚠️ 這一步**只適用於表已經存在**的舊環境。全新的空資料庫請直接 `alembic upgrade head`（見 5.6）——在空庫上 stamp 會標記成「已是最新」卻一張表都沒建。
+
+### 6.2 全新資料庫的初始化順序（外鍵依賴）
 
 自 Phase 5 起，baseline migration **不再帶跨 schema 外鍵**，改由整合 migration
 `a7b8c9d0e1f2` 冪等補上（只在 `public.accounts` 存在時）。所以：
@@ -196,15 +345,50 @@ INSERT INTO public.transactions (account_id, amount, service, balance_after, des
 SELECT id, 10, 'silver-grandpa', points_balance, '補償（incident YYYY-MM-DD）' FROM upd;
 ```
 
+### 常用除錯 SQL（standalone 模式）
+
+同樣三題，換成自有的 `grandpa_yin.subjects` / `wallet_transactions`（**表名與欄位都不同**，事故當下別照抄上一節）：
+
+```sql
+-- 某 LINE 用戶的最近交易
+SELECT wt.created_at, wt.amount, wt.balance_after, wt.description
+FROM grandpa_yin.wallet_transactions wt
+JOIN grandpa_yin.subjects s ON s.id = wt.subject_id
+WHERE s.provider = 'line' AND s.provider_uid = 'U用戶ID'
+ORDER BY wt.created_at DESC LIMIT 20;
+
+-- 帳目一致性檢查（餘額應等於最後一筆 balance_after）
+SELECT s.id, s.points_balance, wt.balance_after AS last_tx_balance
+FROM grandpa_yin.subjects s
+JOIN LATERAL (
+  SELECT balance_after FROM grandpa_yin.wallet_transactions
+  WHERE subject_id = s.id ORDER BY created_at DESC LIMIT 1
+) wt ON true
+WHERE s.points_balance <> wt.balance_after;
+
+-- 手動退點（務必雙寫，不要直接 UPDATE 餘額）
+WITH subj AS (
+  SELECT id FROM grandpa_yin.subjects
+  WHERE provider = 'line' AND provider_uid = 'U用戶ID'
+), upd AS (
+  UPDATE grandpa_yin.subjects SET points_balance = points_balance + 10
+  WHERE id = (SELECT id FROM subj) RETURNING id, points_balance
+)
+INSERT INTO grandpa_yin.wallet_transactions (subject_id, amount, service, balance_after, description)
+SELECT id, 10, 'silver-grandpa', points_balance, '補償（incident YYYY-MM-DD）' FROM upd;
+```
+
+> 兩種模式共用 `grandpa_yin.usage_logs`（查功能層級的成功／失敗），其 `account_id` 在 standalone 存的是 `subjects.id`、在 platform 存的是 `accounts.id`。
+
 ### 待補強清單（來自事故演練）
 
 1. **`/health` endpoint + 外部監控**（UptimeRobot）——目前掛掉只能靠用戶回報。
 2. **跨 process 的 webhook 去重**——記憶體去重在 `-w 2` 下有缺口，改用 Postgres `processed_events` 表或 Redis。
 3. **推送失敗的自動退點**——目前「處理成功但 push 失敗」會白扣點，靠人工補償。
-4. **Supabase connection pooler（6543）**——根治連線池上限。
+4. ~~**Supabase connection pooler**~~——✅ 已納入建置步驟（見 5.2，用 Session pooler）。既有環境若仍是直連，改連線字串即可。
 5. **`transactions` 加 `source/created_by`**——帳目稽核分辨寫入來源。
 6. ~~**Storage bucket 生命週期清理**~~——✅ 已完成（2026-08-10），見下方「排程維運」。
-7. **Replicate model ID 改環境變數 + timeout**——換模型免部署、避免 worker 吊死。
+7. **`run_replicate` 加 timeout**——`replicate.run()` 無 client-side timeout，模型吊住會佔住 worker。（model ID 改設定檔的部分已完成，見 `config/settings.yml`。）
 
 ### 排程維運（Railway cron）
 

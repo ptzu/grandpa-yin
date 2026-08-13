@@ -1,0 +1,318 @@
+"""Loads config/settings.yml — the operator-editable settings: which AI model
+each image feature uses, what it costs, and what new members are given.
+
+Model IDs, prices and the signup bonus used to be constants on the feature
+classes and one-off `os.getenv` calls, so changing any of them meant a code
+change, and two places (the feature and the help text) could disagree about the
+price. They now come from one file.
+
+The input mapping lives here too because a model ID alone is not swappable:
+Replicate models disagree about what the image field is called and whether it
+takes a list, so a config that only carried the ID would break the moment
+someone used it.
+
+Invalid config raises rather than falling back to something silently different —
+a wrong model or a wrong price is worse than a failed deploy. `main()` is wired
+into CI and Railway's preDeployCommand so it never gets that far.
+"""
+import os
+from dataclasses import dataclass, field
+from typing import Optional
+
+import yaml
+
+from src.core.app_logger import get_logger
+
+logger = get_logger("settings")
+
+# config/settings.yml, resolved from this file so cwd doesn't matter
+_DEFAULT_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "config", "settings.yml",
+)
+
+# LINE only accepts 5..60 in multiples of 5 for the loading animation
+_LOADING_MIN = 5
+_LOADING_MAX = 60
+_LOADING_STEP = 5
+
+
+class SettingsError(RuntimeError):
+    """設定檔有誤。訊息會直接呈現給操作者，寫清楚哪個欄位、該怎麼改。"""
+
+
+@dataclass(frozen=True)
+class ModelConfig:
+    """One image feature's model, price and input shape."""
+
+    feature: str
+    model: str
+    cost: int
+    loading_seconds: int
+    image_field: str
+    image_is_list: bool
+    prompt_field: Optional[str] = None
+    extra_input: dict = field(default_factory=dict)
+
+    def build_input(self, image_data_url: str, prompt: str = None) -> dict:
+        """Assemble the payload for this model from the configured field names."""
+        payload = dict(self.extra_input)
+        payload[self.image_field] = [image_data_url] if self.image_is_list else image_data_url
+        if prompt is not None:
+            if not self.prompt_field:
+                raise SettingsError(
+                    f"設定檔的 {self.feature}.input.prompt_field 是空的，"
+                    f"但 {self.feature} 需要送出文字描述。請填入該模型接收描述的欄位名稱。"
+                )
+            payload[self.prompt_field] = prompt
+        return payload
+
+
+def _require(section: dict, feature: str, key: str):
+    if key not in section or section[key] is None:
+        raise SettingsError(f"設定檔缺少 {feature}.{key}")
+    return section[key]
+
+
+def _parse_feature(feature: str, section) -> ModelConfig:
+    if not isinstance(section, dict):
+        raise SettingsError(f"設定檔的 {feature} 必須是一組設定（縮排的 key: value），實際是 {type(section).__name__}")
+
+    model = _require(section, feature, "model")
+    if not isinstance(model, str) or "/" not in model:
+        raise SettingsError(
+            f"{feature}.model 應為 Replicate 模型 ID（格式：作者/模型名），實際是 {model!r}"
+        )
+
+    cost = _require(section, feature, "cost")
+    if not isinstance(cost, int) or isinstance(cost, bool) or cost < 0:
+        raise SettingsError(f"{feature}.cost 必須是 0 或正整數，實際是 {cost!r}")
+
+    loading_seconds = section.get("loading_seconds", 30)
+    if (not isinstance(loading_seconds, int) or isinstance(loading_seconds, bool)
+            or not _LOADING_MIN <= loading_seconds <= _LOADING_MAX
+            or loading_seconds % _LOADING_STEP != 0):
+        raise SettingsError(
+            f"{feature}.loading_seconds 必須是 {_LOADING_MIN}～{_LOADING_MAX} 之間、"
+            f"{_LOADING_STEP} 的倍數（LINE 的限制），實際是 {loading_seconds!r}"
+        )
+
+    input_section = section.get("input")
+    if not isinstance(input_section, dict):
+        raise SettingsError(
+            f"設定檔缺少 features.{feature}.input——換模型時必須指定該模型的欄位名稱，"
+            f"否則呼叫會失敗。範例見 config/settings.yml 的註解。"
+        )
+
+    image_field = _require(input_section, f"{feature}.input", "image_field")
+    if not isinstance(image_field, str):
+        raise SettingsError(f"{feature}.input.image_field 必須是欄位名稱字串，實際是 {image_field!r}")
+
+    image_is_list = input_section.get("image_is_list", False)
+    if not isinstance(image_is_list, bool):
+        raise SettingsError(
+            f"{feature}.input.image_is_list 必須是 true 或 false，實際是 {image_is_list!r}"
+        )
+
+    prompt_field = input_section.get("prompt_field")
+    if prompt_field is not None and not isinstance(prompt_field, str):
+        raise SettingsError(
+            f"{feature}.input.prompt_field 必須是欄位名稱字串，或留 null 表示此模型不吃描述"
+        )
+
+    extra_input = section.get("extra_input") or {}
+    if not isinstance(extra_input, dict):
+        raise SettingsError(f"{feature}.extra_input 必須是一組 key: value，實際是 {type(extra_input).__name__}")
+
+    return ModelConfig(
+        feature=feature,
+        model=model,
+        cost=cost,
+        loading_seconds=loading_seconds,
+        image_field=image_field,
+        image_is_list=image_is_list,
+        prompt_field=prompt_field,
+        extra_input=extra_input,
+    )
+
+
+def _apply_env_overrides(config: ModelConfig) -> ModelConfig:
+    """Let Railway Variables override model and cost without a redeploy.
+
+    Only these two scalars are overridable — the field mapping belongs with the
+    model it describes, and splitting them across two places invites a mismatch.
+    """
+    prefix = config.feature.upper()
+    model = os.getenv(f"{prefix}_MODEL")
+    cost = os.getenv(f"{prefix}_COST")
+
+    if not model and not cost:
+        return config
+
+    changes = {}
+    if model:
+        changes["model"] = model
+        logger.info(f"{config.feature}.model 被環境變數 {prefix}_MODEL 覆寫為 {model}")
+    if cost:
+        try:
+            changes["cost"] = int(cost)
+        except ValueError:
+            raise SettingsError(f"環境變數 {prefix}_COST 必須是整數，實際是 {cost!r}")
+        logger.info(f"{config.feature}.cost 被環境變數 {prefix}_COST 覆寫為 {cost}")
+
+    return ModelConfig(**{**config.__dict__, **changes})
+
+
+@dataclass(frozen=True)
+class MemberSettings:
+    """Settings that apply to members rather than to any one feature."""
+
+    welcome_points: int
+
+
+def _parse_members(section) -> MemberSettings:
+    section = section or {}
+    if not isinstance(section, dict):
+        raise SettingsError(
+            f"設定檔的 members 必須是一組設定（縮排的 key: value），實際是 {type(section).__name__}"
+        )
+
+    welcome_points = section.get("welcome_points", 0)
+    env_override = os.getenv("WELCOME_POINTS")
+    if env_override:
+        try:
+            welcome_points = int(env_override)
+        except ValueError:
+            raise SettingsError(f"環境變數 WELCOME_POINTS 必須是整數，實際是 {env_override!r}")
+        logger.info(f"members.welcome_points 被環境變數 WELCOME_POINTS 覆寫為 {welcome_points}")
+
+    if not isinstance(welcome_points, int) or isinstance(welcome_points, bool) or welcome_points < 0:
+        raise SettingsError(
+            f"members.welcome_points 必須是 0 或正整數（0 表示不送），實際是 {welcome_points!r}"
+        )
+
+    return MemberSettings(welcome_points=welcome_points)
+
+
+@dataclass(frozen=True)
+class Settings:
+    """The whole settings file, validated."""
+
+    features: dict
+    members: MemberSettings
+
+
+def load_settings(path: str = None) -> Settings:
+    """Read and validate the settings file. Raises SettingsError if bad."""
+    path = path or os.getenv("SETTINGS_PATH") or _DEFAULT_PATH
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+    except FileNotFoundError:
+        raise SettingsError(
+            f"找不到設定檔：{path}\n"
+            f"請確認 config/settings.yml 存在，或用 SETTINGS_PATH 指定位置。"
+        )
+    except yaml.YAMLError as e:
+        raise SettingsError(f"設定檔 {path} 格式有誤（YAML 解析失敗）：{e}")
+
+    if not isinstance(raw, dict) or not raw:
+        raise SettingsError(f"設定檔 {path} 是空的或格式不對")
+
+    features_section = raw.get("features")
+    if not isinstance(features_section, dict) or not features_section:
+        raise SettingsError(
+            f"設定檔 {path} 缺少 features 區段（各功能的模型與點數）。範例見檔案內註解。"
+        )
+
+    features = {
+        feature: _apply_env_overrides(_parse_feature(feature, section))
+        for feature, section in features_section.items()
+    }
+    members = _parse_members(raw.get("members"))
+
+    logger.info(
+        "設定已載入："
+        + "、".join(f"{name}={c.model}（{c.cost} 點）" for name, c in features.items())
+        + f"、新會員贈點 {members.welcome_points}"
+    )
+    return Settings(features=features, members=members)
+
+
+_cache = None
+
+
+def _settings() -> Settings:
+    global _cache
+    if _cache is None:
+        _cache = load_settings()
+    return _cache
+
+
+def get_model_config(feature: str) -> ModelConfig:
+    """Model/price config for one feature, loading the file on first use."""
+    features = _settings().features
+    if feature not in features:
+        raise SettingsError(
+            f"設定檔的 features 沒有 {feature} 這一段。已設定的功能：{sorted(features)}"
+        )
+    return features[feature]
+
+
+def get_member_settings() -> MemberSettings:
+    """Member-wide settings (signup bonus)."""
+    return _settings().members
+
+
+def reset_cache():
+    """Drop the cached file so the next read re-loads it (tests use this)."""
+    global _cache
+    _cache = None
+
+
+def main():
+    """Validate the config and report it.
+
+    Wired into Railway's preDeployCommand so a bad edit aborts the deploy: the
+    app itself swallows startup errors and retries per request, which would put
+    a broken config live and turn every webhook into a 500 instead.
+
+    Also the local pre-push check:  python3 -m src.core.settings
+    """
+    import sys
+
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()  # so local runs see the same *_COST / *_MODEL overrides
+    except ImportError:
+        pass
+
+    try:
+        settings = load_settings()
+    except SettingsError as e:
+        print(f"\n❌ 設定檢查失敗：\n\n{e}\n", file=sys.stderr)
+        return 1
+
+    print("\n✅ 設定正常，實際生效的值：\n")
+    for name, c in sorted(settings.features.items()):
+        prompt = c.prompt_field or "（不送描述）"
+        print(f"  {name}")
+        print(f"    模型：{c.model}")
+        print(f"    點數：{c.cost} 點　載入動畫：{c.loading_seconds} 秒")
+        print(f"    輸入欄位：{c.image_field}"
+              f"{'（陣列）' if c.image_is_list else '（單值）'}　描述欄位：{prompt}")
+        if c.extra_input:
+            print(f"    額外參數：{c.extra_input}")
+        print()
+
+    bonus = settings.members.welcome_points
+    print("  members")
+    print(f"    新會員贈點：{bonus} 點" + ("　（0＝不送）" if bonus == 0 else ""))
+    print()
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

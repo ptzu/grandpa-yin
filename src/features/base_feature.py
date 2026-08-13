@@ -1,9 +1,7 @@
 import base64
 from abc import ABC, abstractmethod
-from linebot import LineBotApi
 from src.core.app_logger import get_logger
-from src.services.message_publisher import MessagePublisher
-from src.services.user_state_manager import UserStateManager
+from .context import FeatureContext
 
 logger = get_logger("feature")
 
@@ -14,12 +12,17 @@ _UNSET = object()
 class BaseFeature(ABC):
     """所有功能的基礎類別"""
 
-    def __init__(self, line_bot_api: LineBotApi, publisher: MessagePublisher, state_manager: UserStateManager, member_service=None, storage_service=None):
-        self.line_bot_api = line_bot_api
-        self.publisher = publisher
-        self.state_manager = state_manager
-        self.member_service = member_service
-        self.storage_service = storage_service
+    def __init__(self, ctx: FeatureContext):
+        self.ctx = ctx
+        # Aliases for the collaborators features actually use, so call sites stay
+        # short. New dependencies go on FeatureContext, not into this signature.
+        self.line = ctx.line
+        self.publisher = ctx.publisher
+        self.state_manager = ctx.state_manager
+        self.billing = ctx.billing
+        self.replicate = ctx.replicate
+        self.member_service = ctx.member_service
+        self.storage_service = ctx.storage_service
         # Set by FeatureRegistry.register(); lets a feature hand off to a sibling
         # (photo_intent -> colorize/edit) without app.py wiring them to each other.
         self.registry = None
@@ -98,12 +101,7 @@ class BaseFeature(ABC):
             except Exception as e:
                 logger.warning(f"讀取會員名稱失敗：{str(e)}")
 
-        try:
-            profile = self.line_bot_api.get_profile(user_id)
-            return profile.display_name
-        except Exception as e:
-            logger.warning(f"無法獲取用戶名稱：{str(e)}")
-            return "使用者"
+        return self.line.get_display_name(user_id) or "使用者"
     
     def get_user_id(self, event: dict) -> str:
         """從 event 中獲取用戶 ID"""
@@ -155,8 +153,7 @@ class BaseFeature(ABC):
 
     def download_image(self, message_id: str) -> bytes:
         """從 LINE 下載用戶上傳的圖片"""
-        message_content = self.line_bot_api.get_message_content(message_id)
-        return b''.join(chunk for chunk in message_content.iter_content())
+        return self.line.download_message_content(message_id)
 
     def stash_image(self, image_bytes: bytes) -> dict:
         """暫存圖片，回傳可直接放進 user state `data` 的 payload。
