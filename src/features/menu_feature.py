@@ -42,6 +42,7 @@ class MenuFeature(BaseFeature):
         """處理主功能選單"""
         quick_reply_buttons = [
             QuickReplyButton(action=MessageAction(label="📸 圖片彩色化", text="圖片彩色化")),
+            QuickReplyButton(action=MessageAction(label="🎬 照片動起來", text="照片動起來")),
             QuickReplyButton(action=MessageAction(label="🎨 圖片編輯", text="圖片編輯")),
             QuickReplyButton(action=MessageAction(label="💎 點數查詢", text="點數")),
             QuickReplyButton(action=MessageAction(label="❓ 使用說明", text="使用說明")),
@@ -65,6 +66,7 @@ class MenuFeature(BaseFeature):
         # 讀同一份設定，說明文案才不會跟實際扣款金額對不上
         colorize_cost = get_model_config("colorize").cost
         edit_cost = get_model_config("edit").cost
+        animate_cost = get_model_config("animate").cost
         help_message = f"""{user_name} 你好！✨
 ❓ 使用說明
 
@@ -75,6 +77,11 @@ class MenuFeature(BaseFeature):
 - 自動進行精心的彩色化處理
 - 讓回憶重新綻放光彩 🌈
 - 支援 JPEG 格式
+
+🎬 照片動起來：
+- 上傳一張照片
+- 讓照片裡的人輕輕動起來
+- 做成一段約 5 秒的小影片 ✨
 
 🖼️ 圖片編輯：
 - 上傳任何圖片
@@ -90,7 +97,7 @@ class MenuFeature(BaseFeature):
 💡 貼心提醒：
 - 最簡單的用法：直接把照片傳給我，我會問您想做什麼 📷
 - 輸入 "!功能" 開啟功能選單
-- 圖片彩色化每次消耗 {colorize_cost} 點、圖片編輯每次消耗 {edit_cost} 點 💎
+- 圖片彩色化 {colorize_cost} 點、圖片編輯 {edit_cost} 點、照片動起來 {animate_cost} 點 💎
 - 輸入「點數」查看剩餘點數"""
         
         result = self.publisher.process_reply_message(

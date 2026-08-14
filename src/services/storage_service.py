@@ -67,6 +67,28 @@ class StorageService:
         response.raise_for_status()
         return response.content
 
+    def create_signed_url(self, key: str, expires_in: int = 86400) -> str:
+        """Time-limited public URL for a private object.
+
+        LINE renders a video message by fetching its thumbnail from a URL of its
+        own accord — possibly minutes after the message is pushed, and without
+        our service role key. A signed URL is how a private bucket serves that
+        without being made public.
+
+        Default expiry is a day: long enough for LINE to fetch and cache the
+        thumbnail, short enough that a leaked link goes stale.
+        """
+        response = requests.post(
+            f"{self.base_url}/storage/v1/object/sign/{self.bucket}/{key}",
+            headers={**self._headers(), "Content-Type": "application/json"},
+            json={"expiresIn": expires_in},
+            timeout=(3, 10),
+        )
+        response.raise_for_status()
+        # Supabase returns a path like "/object/sign/<bucket>/<key>?token=…"
+        signed_path = response.json()["signedURL"]
+        return f"{self.base_url}/storage/v1{signed_path}"
+
     def delete_image(self, key: str):
         """刪除圖片；失敗只記 log，殘留物件由 cleanup_storage.py 兜底。
 

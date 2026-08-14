@@ -52,19 +52,28 @@ class ModelConfig:
     image_field: str
     image_is_list: bool
     prompt_field: Optional[str] = None
+    default_prompt: Optional[str] = None
     extra_input: dict = field(default_factory=dict)
 
     def build_input(self, image_data_url: str, prompt: str = None) -> dict:
-        """Assemble the payload for this model from the configured field names."""
+        """Assemble the payload for this model from the configured field names.
+
+        Features where the user writes the instruction (edit) pass `prompt`.
+        Features where the instruction is fixed (animate) leave it out and get
+        `default_prompt` from the config — that wording is the main quality dial
+        for such a feature, so it belongs somewhere tunable without a deploy.
+        """
         payload = dict(self.extra_input)
         payload[self.image_field] = [image_data_url] if self.image_is_list else image_data_url
-        if prompt is not None:
+
+        text = prompt if prompt is not None else self.default_prompt
+        if text is not None:
             if not self.prompt_field:
                 raise SettingsError(
                     f"設定檔的 {self.feature}.input.prompt_field 是空的，"
                     f"但 {self.feature} 需要送出文字描述。請填入該模型接收描述的欄位名稱。"
                 )
-            payload[self.prompt_field] = prompt
+            payload[self.prompt_field] = text
         return payload
 
 
@@ -120,6 +129,19 @@ def _parse_feature(feature: str, section) -> ModelConfig:
             f"{feature}.input.prompt_field 必須是欄位名稱字串，或留 null 表示此模型不吃描述"
         )
 
+    default_prompt = input_section.get("default_prompt")
+    if default_prompt is not None:
+        if not isinstance(default_prompt, str) or not default_prompt.strip():
+            raise SettingsError(
+                f"{feature}.input.default_prompt 必須是非空字串（此功能固定送出的指令），或整個省略"
+            )
+        if not prompt_field:
+            raise SettingsError(
+                f"{feature}.input 設了 default_prompt 卻沒有 prompt_field——"
+                f"沒有欄位可以放這段指令。請補上該模型接收描述的欄位名稱。"
+            )
+        default_prompt = default_prompt.strip()
+
     extra_input = section.get("extra_input") or {}
     if not isinstance(extra_input, dict):
         raise SettingsError(f"{feature}.extra_input 必須是一組 key: value，實際是 {type(extra_input).__name__}")
@@ -132,6 +154,7 @@ def _parse_feature(feature: str, section) -> ModelConfig:
         image_field=image_field,
         image_is_list=image_is_list,
         prompt_field=prompt_field,
+        default_prompt=default_prompt,
         extra_input=extra_input,
     )
 

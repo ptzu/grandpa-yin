@@ -19,6 +19,7 @@ from src.features.context import FeatureContext
 from src.features.feature_registry import FeatureRegistry
 from src.features.menu_feature import MenuFeature
 from src.features.colorize_feature import ColorizeFeature
+from src.features.animate_feature import AnimateFeature
 from src.features.edit_feature import EditFeature
 from src.features.member_feature import MemberFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
@@ -30,6 +31,8 @@ IMAGE_BYTES = b"\xff\xd8fake-jpeg"
 # Read from the shipped config/settings.yml, so the suite asserts against whatever
 # is actually configured — and fails loudly if that file stops being valid.
 COLORIZE_CONFIG = get_model_config("colorize")
+ANIMATE_CONFIG = get_model_config("animate")
+ANIMATE_COST = ANIMATE_CONFIG.cost
 EDIT_CONFIG = get_model_config("edit")
 COLORIZE_COST = COLORIZE_CONFIG.cost
 EDIT_COST = EDIT_CONFIG.cost
@@ -142,6 +145,7 @@ class FakeStorage:
     def __init__(self):
         self.objects = {}
         self.deleted = []
+        self.signed = []
         self._counter = 0
 
     def is_configured(self):
@@ -159,6 +163,12 @@ class FakeStorage:
     def delete_image(self, key):
         self.objects.pop(key, None)
         self.deleted.append(key)
+
+    def create_signed_url(self, key, expires_in=86400):
+        if key not in self.objects:
+            raise KeyError(key)
+        self.signed.append((key, expires_in))
+        return f"https://storage.test/signed/{key}?token=fake"
 
 
 class FakeMemberService:
@@ -304,6 +314,7 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None):
     registry.register(MenuFeature(ctx))
     registry.register(ColorizeFeature(ctx))
     registry.register(EditFeature(ctx))
+    registry.register(AnimateFeature(ctx))
     if with_member_feature:
         registry.register(MemberFeature(ctx))
     registry.register(PhotoIntentFeature(ctx))

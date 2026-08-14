@@ -207,10 +207,16 @@ class BaseFeature(ABC):
         """獲取用戶狀態"""
         return self.state_manager.get_state(user_id)
 
-    def clear_user_state(self, user_id: str):
-        """清除用戶狀態；順手清掉該狀態引用的暫存圖"""
+    def clear_user_state(self, user_id: str, discard_images: bool = True):
+        """清除用戶狀態；順手清掉該狀態引用的暫存圖。
+
+        `discard_images=False` 用於「圖片在狀態結束後仍被外部引用」的情況——
+        影片訊息的縮圖就是：LINE 會在推送之後才自己去抓那張圖，當場刪掉會讓
+        縮圖破圖。那些物件改由 scripts/cleanup_storage.py 在 24 小時後回收。
+        """
         removed = self.state_manager.clear_state(user_id)
-        self._discard_superseded_image(removed, None)
+        if discard_images:
+            self._discard_superseded_image(removed, None)
 
     def _discard_superseded_image(self, previous_data: dict, next_data: dict):
         """狀態轉換後刪掉不再被任何狀態引用的暫存圖。

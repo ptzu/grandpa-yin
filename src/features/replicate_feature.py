@@ -131,25 +131,30 @@ class ReplicateImageFeature(BaseFeature):
         """發送 LINE 載入動畫；失敗不影響主流程"""
         self.line.start_loading_animation(user_id, self.loading_seconds)
 
-    def submit_billed_processing(self, user_id, event, deduct_description, run) -> bool:
-        """扣點跑 run()，成功就把結果圖推給用戶。
+    def build_result_message(self, output_url: str):
+        """結果要以什麼訊息型別推給用戶（預設圖片；產影片的功能覆寫它）"""
+        return ImageSendMessage(
+            original_content_url=output_url,
+            preview_image_url=output_url,
+        )
+
+    def submit_billed_processing(self, user_id, event, deduct_description, run,
+                                 build_message=None, on_finish=None) -> bool:
+        """扣點跑 run()，成功就把結果推給用戶。
 
         金流（扣點／失敗退點／滿載降級）由 BillingService 負責；這裡只補上
-        「圖片功能」專屬的部分：結果如何呈現、結束後清狀態。
+        這類功能專屬的部分：結果如何呈現、結束後清狀態。
 
         Args:
-            run: 無參數 callable，回傳結果圖片 URL（在背景執行緒中執行）
+            run: 無參數 callable，回傳結果的 URL（在背景執行緒中執行）
+            build_message: 覆寫結果訊息的組法（預設用 build_result_message）
+            on_finish: 覆寫收尾動作（預設清除用戶狀態）
         """
+        build_message = build_message or self.build_result_message
+
         def deliver(output_url):
-            # 推送結果圖片（載入動畫會自動停止）
-            self.publisher.process_push_message(
-                user_id,
-                ImageSendMessage(
-                    original_content_url=output_url,
-                    preview_image_url=output_url
-                ),
-                event
-            )
+            # 推送結果（載入動畫會自動停止）
+            self.publisher.process_push_message(user_id, build_message(output_url), event)
 
         return self.billing.submit(
             user_id=user_id,
@@ -159,7 +164,7 @@ class ReplicateImageFeature(BaseFeature):
             description=deduct_description,
             run=run,
             on_success=deliver,
-            on_finish=lambda: self.clear_user_state(user_id),
+            on_finish=on_finish or (lambda: self.clear_user_state(user_id)),
             failure_message=PROCESSING_FAILURE_MESSAGE,
         )
 

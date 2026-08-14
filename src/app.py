@@ -23,6 +23,7 @@ from src.features.context import FeatureContext
 from src.features.feature_registry import FeatureRegistry
 from src.features.menu_feature import MenuFeature
 from src.features.colorize_feature import ColorizeFeature
+from src.features.animate_feature import AnimateFeature
 from src.features.edit_feature import EditFeature
 from src.features.member_feature import MemberFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
@@ -136,6 +137,7 @@ def init():
     feature_registry.register(MenuFeature(ctx))
     feature_registry.register(ColorizeFeature(ctx))
     feature_registry.register(EditFeature(ctx))
+    feature_registry.register(AnimateFeature(ctx))
 
     # 註冊會員功能（如果會員服務可用）
     if member_service:

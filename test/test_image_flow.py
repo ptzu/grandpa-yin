@@ -8,7 +8,7 @@ import pytest
 
 from conftest import COLORIZE_COST, EDIT_COST
 
-CHOICE_BUTTONS = ["📸 幫照片上色", "🎨 照我說的修改", "❌ 取消"]
+CHOICE_BUTTONS = ["📸 幫照片上色", "🎬 讓照片動起來", "🎨 照我說的修改", "❌ 取消"]
 CONFIRM_BUTTONS = ["✅ 確定開始", "✏️ 重新描述", "❌ 取消"]
 PRESET_BUTTON = "🏖️ 背景換成海灘"
 

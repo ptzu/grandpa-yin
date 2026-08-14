@@ -44,6 +44,33 @@ features:
     extra_input:
       output_format: jpg
 
+  # 照片動起來：傳照片 → 產生 5 秒微動影片
+  #
+  # 這是唯一輸出「影片」的功能，點數也最貴（成本約是彩色化的 2.5 倍）。
+  # default_prompt 是這個功能的品質主控鈕——它固定送給模型，用戶不需輸入。
+  # 刻意寫得極度克制：長輩看的是過世親人的照片，五官跑掉會從感動變成不安，
+  # 所以寧可動得少也不能壞。想調整動作幅度就改這段文字，不必改程式碼。
+  animate:
+    model: prunaai/p-video
+    cost: 25
+    loading_seconds: 60
+    input:
+      image_field: image
+      image_is_list: false
+      prompt_field: prompt
+      default_prompt: >
+        Subtle, gentle photo animation of a vintage portrait. The people breathe
+        softly and blink naturally, with the faintest warm smile. Keep every face
+        identical and perfectly stable — no morphing, no distortion, no change of
+        identity or age. Everyone stays in exactly the same position. Only a very
+        slow, almost imperceptible camera drift. Photorealistic, calm, respectful,
+        documentary style.
+    extra_input:
+      duration: 5
+      resolution: 720p
+      aspect_ratio: "16:9"
+      fps: 24
+
   # 圖片彩色化：傳黑白照 → 自動上色
   colorize:
     model: flux-kontext-apps/restore-image

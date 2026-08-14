@@ -30,6 +30,17 @@ FEATURES = {
     },
 }
 
+FEATURES["animate"] = {
+    "model": "prunaai/p-video",
+    "cost": 25,
+    "loading_seconds": 60,
+    "input": {
+        "image_field": "image", "image_is_list": False, "prompt_field": "prompt",
+        "default_prompt": "Subtle gentle animation, keep faces stable.",
+    },
+    "extra_input": {"duration": 5, "resolution": "720p"},
+}
+
 VALID = {"features": FEATURES, "members": {"welcome_points": 50}}
 
 IMAGE_URL = "data:image/jpeg;base64,ZmFrZQ=="

@@ -15,6 +15,7 @@ CMD_CANCEL = "取消"
 CHOICES = {
     "幫照片上色": "colorize",
     "照我說的修改": "edit",
+    "讓照片動起來": "animate",
 }
 
 
@@ -169,6 +170,7 @@ class PhotoIntentFeature(BaseFeature):
     def _choice_quick_reply(self) -> QuickReply:
         return QuickReply(items=[
             QuickReplyButton(action=MessageAction(label="📸 幫照片上色", text="幫照片上色")),
+            QuickReplyButton(action=MessageAction(label="🎬 讓照片動起來", text="讓照片動起來")),
             QuickReplyButton(action=MessageAction(label="🎨 照我說的修改", text="照我說的修改")),
             QuickReplyButton(action=MessageAction(label="❌ 取消", text=CMD_CANCEL)),
         ])
