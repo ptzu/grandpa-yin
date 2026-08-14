@@ -177,6 +177,24 @@ def main():
     logger.info(f"服務運行在: http://0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port, debug=debug_mode)
 
+def _public_base_url():
+    """本服務對外的 origin（scheme + host）。
+
+    ngrok 與 Railway 都在前面終止 TLS，轉進來的是普通 http，所以
+    `request.url_root` 的 scheme 會是 http——而 LINE 明確拒收非 HTTPS 的
+    圖片／影片網址（"Must be a valid HTTPS URL"）。scheme 必須取自
+    X-Forwarded-Proto 才會正確。
+
+    PUBLIC_BASE_URL 可覆寫，供代理層沒有送這些 header 的環境使用。
+    """
+    explicit = os.getenv("PUBLIC_BASE_URL")
+    if explicit:
+        return explicit.rstrip("/")
+    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+    host = request.headers.get("X-Forwarded-Host", request.host)
+    return f"{scheme}://{host}"
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     # 每個 request 一個追蹤 ID，log、Sentry 事件與背景工作都會帶上
@@ -184,7 +202,7 @@ def webhook():
     request_id_var.set(request_id)
     set_request_context(request_id=request_id)
     # 讓需要對外連結的功能（影片縮圖）知道本服務的公開網址
-    set_public_base_url(request.url_root)
+    set_public_base_url(_public_base_url())
 
     # 如果模組載入時初始化失敗，在這裡重試一次
     if not _initialized:

@@ -153,8 +153,8 @@ class ReplicateImageFeature(BaseFeature):
         build_message = build_message or self.build_result_message
 
         def deliver(output_url):
-            # 推送結果（載入動畫會自動停止）
-            self.publisher.process_push_message(user_id, build_message(output_url), event)
+            # 推送結果（載入動畫會自動停止）；回傳送達與否供 billing 決定退不退點
+            return self.publisher.process_push_message(user_id, build_message(output_url), event)
 
         return self.billing.submit(
             user_id=user_id,

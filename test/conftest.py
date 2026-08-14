@@ -72,6 +72,8 @@ class FakeStateManager:
 class FakePublisher:
     def __init__(self):
         self.messages = []
+        # 設 True 模擬 LINE 退件（例如網址不合規），用來驗證推送失敗會退點
+        self.push_fails = False
 
     def _record(self, kind, message):
         quick_reply = getattr(message, "quick_reply", None)
@@ -94,6 +96,10 @@ class FakePublisher:
 
     def process_push_message(self, user_id, message, event=None):
         self._record("push", message)
+        # 只讓「結果訊息」失敗，後續的道歉文字仍送得出去（貼近真實情況）
+        if self.push_fails and type(message).__name__ != "TextSendMessage":
+            return False
+        return True
 
     def reset(self):
         self.messages = []

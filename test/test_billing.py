@@ -91,6 +91,45 @@ class TestInsufficientPoints:
         assert member.refunds == [], "沒扣到就沒得退"
 
 
+class TestDeliveryFailure:
+    """處理成功但送不到用戶手上——等於沒服務到，不能讓人白扣點。
+
+    這條路徑實測會發生：影片訊息的縮圖網址不是 HTTPS 時 LINE 直接退件，
+    當時扣了 25 點、用戶什麼也沒收到。
+    """
+
+    def test_failed_delivery_refunds(self, billing):
+        service, member, publisher = billing
+
+        submit(service, run=lambda: "ok", on_success=lambda r: False)
+
+        assert member.points == 100, "沒送達就要把點數退回去"
+        assert member.refunds == [{"amount": 5, "feature": "edit", "reason": "推送失敗"}]
+
+    def test_failed_delivery_tells_the_user(self, billing):
+        service, _, publisher = billing
+
+        submit(service, run=lambda: "ok", on_success=lambda r: False)
+
+        assert "點數已退還" in (publisher.last["text"] or "")
+
+    def test_successful_delivery_does_not_refund(self, billing):
+        service, member, _ = billing
+
+        submit(service, run=lambda: "ok", on_success=lambda r: True)
+
+        assert member.refunds == []
+        assert member.points == 95
+
+    def test_on_success_returning_none_is_treated_as_delivered(self, billing):
+        """只有明確回傳 False 才算失敗，None 不是"""
+        service, member, _ = billing
+
+        submit(service, run=lambda: "ok", on_success=lambda r: None)
+
+        assert member.refunds == []
+
+
 class TestCapacity:
     def test_pool_full_degrades_gracefully(self, billing, monkeypatch):
         service, member, publisher = billing

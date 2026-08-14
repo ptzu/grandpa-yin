@@ -254,11 +254,16 @@ class AnimateFeature(ReplicateImageFeature):
         if self.preview_store and self.preview_store.is_available():
             try:
                 url = self.preview_store.save(image_bytes)
+                if url and not url.startswith("https://"):
+                    # LINE 明確拒收非 HTTPS 的媒體網址。與其送出去被退（用戶
+                    # 白扣點），不如當場放棄——本地沒有 HTTPS 入口時就是這樣。
+                    logger.warning(f"本服務的公開網址不是 HTTPS，LINE 無法使用: {url}")
+                    return None
                 if url:
                     logger.info("使用本地縮圖（Storage 未設定）")
                     return url
             except Exception:
                 logger.exception("產生本地縮圖失敗")
 
-        logger.warning("無法產生影片縮圖網址（Storage 未設定且取不到本服務的公開網址）")
+        logger.warning("無法產生影片縮圖網址（Storage 未設定且取不到 HTTPS 公開網址）")
         return None

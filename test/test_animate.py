@@ -122,6 +122,31 @@ class TestThumbnailLifecycle:
         assert env.preview_store.load("not-a-token") is None
         assert env.preview_store.load("") is None
 
+    def test_refuses_non_https_preview_url(self, monkeypatch):
+        """LINE 拒收非 HTTPS 的媒體網址——與其送出去被退（用戶白扣點），
+        不如當場放棄。這是實測踩到的坑：ngrok 轉進來是 http。"""
+        env = build_env()
+        monkeypatch.setattr(env.storage, "is_configured", lambda: False)
+        set_public_base_url("http://localhost:5000")
+
+        start_and_send_photo(env)
+        env.reset()
+        env.send_text("確定開始")
+
+        assert env.member.deductions == [], "做不出合規網址就不該扣點"
+        assert "錯誤" in env.last_text
+
+    def test_delivery_failure_refunds_the_points(self, monkeypatch):
+        """萬一還是被 LINE 退件，點數要退回去"""
+        env = build_env()
+        env.publisher.push_fails = True
+
+        start_and_send_photo(env)
+        env.send_text("確定開始")
+
+        assert env.member.points == 100, "白扣點是不能接受的"
+        assert env.member.refunds and env.member.refunds[0]["reason"] == "推送失敗"
+
     def test_fails_cleanly_when_no_public_url_is_known(self, monkeypatch):
         """既沒 Storage 也不知道自己的公開網址 → 明講且不扣點，不推破圖"""
         env = build_env()
