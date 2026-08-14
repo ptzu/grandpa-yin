@@ -198,9 +198,9 @@ class AnimateFeature(ReplicateImageFeature):
                 self._reply(reply_token, user_id, event, "找不到您上傳的照片，請重新傳一次給我 🙏")
                 return None
 
-            # 縮圖沿用用戶原本那張照片。取不到 signed URL 就不做（沒有縮圖
-            # LINE 不接受影片訊息），寧可明確告知也不要推出破圖的訊息。
-            preview_url = self._preview_url(state_data)
+            # 縮圖沿用用戶原本那張照片。取不到網址就不做（沒有縮圖 LINE 不接受
+            # 影片訊息），寧可明確告知也不要推出破圖的訊息。
+            preview_url = self._preview_url(state_data, image_bytes)
             if not preview_url:
                 self.discard_stashed_image(state_data)
                 self.clear_user_state(user_id)
@@ -236,15 +236,29 @@ class AnimateFeature(ReplicateImageFeature):
 
         return None
 
-    def _preview_url(self, state_data: dict):
-        """影片訊息的縮圖網址；取不到回傳 None（呼叫端負責告知用戶）"""
+    def _preview_url(self, state_data: dict, image_bytes: bytes):
+        """影片訊息的縮圖網址；取不到回傳 None（呼叫端負責告知用戶）。
+
+        兩條路，優先用 Storage：
+          1. Storage 有設定 → signed URL（正式環境走這條）
+          2. 沒設定 → 由本服務自己在 /preview/<token> 供圖（本地開發用 ngrok
+             的公開網址，不必依賴任何雲端服務）
+        """
         image_key = (state_data or {}).get("image_key")
-        if not image_key or not self.storage_service:
-            # base64 降級模式下沒有可供 LINE 抓取的網址
-            logger.warning("照片未存於 Storage，無法產生影片縮圖網址")
-            return None
-        try:
-            return self.storage_service.create_signed_url(image_key, PREVIEW_URL_TTL_SECONDS)
-        except Exception:
-            logger.exception("產生影片縮圖 signed URL 失敗")
-            return None
+        if image_key and self.storage_service:
+            try:
+                return self.storage_service.create_signed_url(image_key, PREVIEW_URL_TTL_SECONDS)
+            except Exception:
+                logger.exception("產生影片縮圖 signed URL 失敗，改用本地縮圖")
+
+        if self.preview_store and self.preview_store.is_available():
+            try:
+                url = self.preview_store.save(image_bytes)
+                if url:
+                    logger.info("使用本地縮圖（Storage 未設定）")
+                    return url
+            except Exception:
+                logger.exception("產生本地縮圖失敗")
+
+        logger.warning("無法產生影片縮圖網址（Storage 未設定且取不到本服務的公開網址）")
+        return None

@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # .env file, so this is a harmless no-op and platform Variables are used as-is.
 load_dotenv()
 
-from flask import Flask, request, abort
+from flask import Flask, request, abort, Response
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from src.core.app_logger import get_logger, request_id_var
@@ -18,6 +18,7 @@ from src.services.billing import BillingService
 from src.services.message_publisher import MessagePublisher
 from src.services.line_client import LineClient
 from src.services.replicate_client import ReplicateClient
+from src.services.preview_store import LocalPreviewStore, set_public_base_url
 from src.services.user_state_manager import UserStateManager
 from src.features.context import FeatureContext
 from src.features.feature_registry import FeatureRegistry
@@ -41,6 +42,7 @@ publisher = None
 user_state_manager = None
 feature_registry = None
 member_service = None
+preview_store = None
 _initialized = False
 
 # 已處理事件的記憶體快取，防止 LINE webhook 重送造成重複處理／重複扣點。
@@ -66,7 +68,7 @@ def _is_duplicate_event(event_id):
 
 def init():
     """初始化所有 LINE Bot 相關組件"""
-    global app, line_bot_api, handler, publisher, user_state_manager, feature_registry, member_service, _initialized
+    global app, line_bot_api, handler, publisher, user_state_manager, feature_registry, member_service, preview_store, _initialized
     
     # 如果已經初始化過，直接返回
     if _initialized:
@@ -121,7 +123,10 @@ def init():
     else:
         logger.warning("Supabase Storage 未設定，圖片編輯將以 base64 暫存於資料庫 state")
 
-    # 7. 組裝功能的依賴（新增依賴只要加在 FeatureContext，不必動每個 feature 的建構子）
+    # 7. 影片縮圖的本地降級（Storage 未設定時由本服務自己供圖）
+    preview_store = LocalPreviewStore()
+
+    # 8. 組裝功能的依賴（新增依賴只要加在 FeatureContext，不必動每個 feature 的建構子）
     ctx = FeatureContext(
         line=line_client,
         publisher=publisher,
@@ -130,9 +135,10 @@ def init():
         replicate=ReplicateClient(),
         member_service=member_service,
         storage_service=storage_service,
+        preview_store=preview_store,
     )
 
-    # 8. 註冊所有功能
+    # 9. 註冊所有功能
     feature_registry = FeatureRegistry(user_state_manager)
     feature_registry.register(MenuFeature(ctx))
     feature_registry.register(ColorizeFeature(ctx))
@@ -177,6 +183,8 @@ def webhook():
     request_id = uuid.uuid4().hex[:8]
     request_id_var.set(request_id)
     set_request_context(request_id=request_id)
+    # 讓需要對外連結的功能（影片縮圖）知道本服務的公開網址
+    set_public_base_url(request.url_root)
 
     # 如果模組載入時初始化失敗，在這裡重試一次
     if not _initialized:
@@ -244,6 +252,26 @@ def webhook():
     except Exception:
         logger.exception("Webhook error")
         abort(500)
+
+@app.route("/preview/<token>", methods=["GET"])
+def preview(token):
+    """供 LINE 抓取影片訊息的縮圖（Storage 未設定時的降級路徑）。
+
+    只在 Storage 未設定時會被用到；正式環境的縮圖走 Supabase signed URL，
+    這條路由不會有流量。token 是 32 位隨機 hex，猜不到也列舉不了。
+    """
+    if preview_store is None:
+        abort(503)
+
+    image_bytes = preview_store.load(token)
+    if not image_bytes:
+        abort(404)
+
+    return Response(
+        image_bytes,
+        mimetype="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 def handle_text_message(event):
     """處理文字訊息，委託給 FeatureRegistry"""

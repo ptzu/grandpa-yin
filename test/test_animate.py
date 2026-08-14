@@ -6,6 +6,7 @@
 import pytest
 
 from conftest import ANIMATE_COST, USER, build_env
+from src.services.preview_store import set_public_base_url
 
 CONFIRM_BUTTONS = ["✅ 確定開始", "❌ 取消"]
 
@@ -87,10 +88,45 @@ class TestThumbnailLifecycle:
         assert key in env.storage.objects, "縮圖在流程結束後仍須存在，否則影片訊息破圖"
         assert key not in env.storage.deleted
 
-    def test_falls_back_gracefully_without_storage(self, monkeypatch):
-        """base64 降級模式下沒有可供 LINE 抓取的網址——要明講而不是推出破圖"""
+    def test_serves_thumbnail_locally_when_storage_is_absent(self, monkeypatch):
+        """沒有 Storage 時改由本服務供圖（本地開發走 ngrok，不依賴雲端）"""
         env = build_env()
         monkeypatch.setattr(env.storage, "is_configured", lambda: False)
+        set_public_base_url("https://test.ngrok-free.app")
+
+        start_and_send_photo(env)
+        env.send_text("確定開始")
+
+        pushed = [m for m in env.messages if m["kind"] == "push"]
+        assert pushed[-1]["type"] == "VideoSendMessage", "沒有 Storage 也要做得出影片"
+        assert env.member.deductions, "這條路徑要照常扣點"
+        assert env.storage.signed == [], "沒有 Storage 就不該去簽 URL"
+
+    def test_locally_served_thumbnail_is_retrievable(self, monkeypatch):
+        """本地縮圖必須真的取得回來，否則 LINE 會拿到破圖"""
+        env = build_env()
+        monkeypatch.setattr(env.storage, "is_configured", lambda: False)
+        set_public_base_url("https://test.ngrok-free.app")
+
+        start_and_send_photo(env)
+        env.send_text("確定開始")
+
+        import os
+        tokens = os.listdir(env.preview_store.directory)
+        assert tokens, "應該有一張本地縮圖"
+        assert env.preview_store.load(tokens[0]), "縮圖必須讀得回來"
+
+    def test_rejects_bogus_preview_tokens(self, env):
+        """token 是固定格式的隨機 hex——擋掉路徑穿越與亂猜"""
+        assert env.preview_store.load("../../../etc/passwd") is None
+        assert env.preview_store.load("not-a-token") is None
+        assert env.preview_store.load("") is None
+
+    def test_fails_cleanly_when_no_public_url_is_known(self, monkeypatch):
+        """既沒 Storage 也不知道自己的公開網址 → 明講且不扣點，不推破圖"""
+        env = build_env()
+        monkeypatch.setattr(env.storage, "is_configured", lambda: False)
+        set_public_base_url(None)
 
         start_and_send_photo(env)
         env.reset()

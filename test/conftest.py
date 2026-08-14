@@ -7,12 +7,14 @@ change to the wiring only edits `build_env()` below.
 """
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
 from src.core.settings import get_model_config
+from src.services.preview_store import LocalPreviewStore, set_public_base_url
 from src.services import billing as billing_module
 from src.services.billing import BillingService
 from src.features.context import FeatureContext
@@ -299,6 +301,7 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None):
     member_service = FakeMemberService(points)
     storage = FakeStorage()
     replicate = FakeReplicateClient(fail_with=replicate_fails_with)
+    preview_store = LocalPreviewStore(directory=tempfile.mkdtemp(prefix='gy-preview-test-'))
 
     ctx = FeatureContext(
         line=FakeLineClient(),
@@ -308,6 +311,7 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None):
         replicate=replicate,
         member_service=member_service,
         storage_service=storage,
+        preview_store=preview_store,
     )
 
     registry = FeatureRegistry(state_manager)
@@ -319,7 +323,9 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None):
         registry.register(MemberFeature(ctx))
     registry.register(PhotoIntentFeature(ctx))
 
-    return Env(registry, publisher, state_manager, member_service, storage, replicate)
+    env = Env(registry, publisher, state_manager, member_service, storage, replicate)
+    env.preview_store = preview_store
+    return env
 
 
 # ------------------------------------------------------------ fixtures
@@ -334,6 +340,8 @@ def offline_externals(monkeypatch):
     """
     monkeypatch.setattr(billing_module, "submit_image_task",
                         lambda task: (task(), True)[1])
+    # 公開網址是 ContextVar，會殘留到下一個測試——每次歸零，避免順序相依
+    set_public_base_url(None)
 
 
 @pytest.fixture

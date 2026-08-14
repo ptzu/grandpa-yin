@@ -34,3 +34,5 @@ class FeatureContext:
     replicate: ReplicateClient
     member_service: Optional[object] = None
     storage_service: Optional[object] = None
+    # Serves thumbnails from the app itself when Storage isn't configured
+    preview_store: Optional[object] = None
