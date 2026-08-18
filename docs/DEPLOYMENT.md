@@ -68,7 +68,7 @@ Railway 改 Variables **不會**自動重啟舊容器的 process 內快取，改
 | `REPLICATE_API_TOKEN` | ✅ | Replicate API token（會計費） |
 | `DATABASE_URL` | ✅ | Postgres 連線字串（見第五章） |
 | `DEPLOY_MODE` | | `platform`（**未設定時的預設**）/ `standalone`。獨立環境**必須明寫** `standalone` |
-| `SUPABASE_URL` | | Supabase 專案 URL（圖片 Storage） |
+| `SUPABASE_URL` | ⭕ | Supabase 專案 URL（圖片 Storage）。技術上可省略，但**正式環境視為必填**——未設定時圖片會以 base64 塞進 `bot_sessions.state_metadata`（JSONB），大照片會讓該欄位膨脹到數 MB，且每則訊息查狀態都要撈出來。另「照片動起來」的縮圖也需要它 |
 | `SUPABASE_SERVICE_ROLE_KEY` | | **service role / secret** key（非 anon / publishable key） |
 | `SUPABASE_STORAGE_BUCKET` | | 預設 `linebot-temp-images` |
 | `WELCOME_POINTS` | | **覆寫** `config/settings.yml` 的新會員贈點 |
