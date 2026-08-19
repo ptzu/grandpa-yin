@@ -27,6 +27,7 @@ from src.features.colorize_feature import ColorizeFeature
 from src.features.animate_feature import AnimateFeature
 from src.features.edit_feature import EditFeature
 from src.features.member_feature import MemberFeature
+from src.features.followup_feature import FollowUpFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
 from src.models.database import init_database, get_session
 from src.services.member_service import MemberService
@@ -161,6 +162,10 @@ def init():
     feature_registry.register(ColorizeFeature(ctx))
     feature_registry.register(EditFeature(ctx))
     feature_registry.register(AnimateFeature(ctx))
+
+    # 成品推出去之後的「還要再做點什麼嗎」。本身不搶路由（只認自己的按鈕
+    # 文字），但要在 photo_intent 之前註冊。
+    feature_registry.register(FollowUpFeature(ctx))
 
     # 註冊會員功能（如果會員服務可用）
     if member_service:

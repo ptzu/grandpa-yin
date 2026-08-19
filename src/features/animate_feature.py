@@ -41,6 +41,9 @@ class AnimateFeature(ReplicateImageFeature):
     trigger_command = "照片動起來"
     image_waiting_state = STATE_WAITING_IMAGE
 
+    # 成品是影片，餵不回圖片模型，所以做完不提供「拿這個繼續做」的後續選項
+    result_can_be_reused = False
+
     @property
     def name(self) -> str:
         return "animate"

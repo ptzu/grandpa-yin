@@ -25,6 +25,7 @@ from src.features.colorize_feature import ColorizeFeature
 from src.features.animate_feature import AnimateFeature
 from src.features.edit_feature import EditFeature
 from src.features.member_feature import MemberFeature
+from src.features.followup_feature import FollowUpFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
 from src.core.settings import _parse_payments
 from src.services.payment_service import PaymentService
@@ -101,10 +102,13 @@ class FakePublisher:
         from linebot.models import TextSendMessage
         self._record("reply", TextSendMessage(text=text))
 
-    def process_push_message(self, user_id, message, event=None):
-        self._record("push", message)
+    def process_push_message(self, user_id, messages, event=None):
+        # 真實的 push_message 收單則或一串；成品 + 後續選項就是一串送出
+        batch = messages if isinstance(messages, list) else [messages]
+        for message in batch:
+            self._record("push", message)
         # 只讓「結果訊息」失敗，後續的道歉文字仍送得出去（貼近真實情況）
-        if self.push_fails and type(message).__name__ != "TextSendMessage":
+        if self.push_fails and any(type(m).__name__ != "TextSendMessage" for m in batch):
             return False
         return True
 
@@ -407,6 +411,7 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None,
     registry.register(ColorizeFeature(ctx))
     registry.register(EditFeature(ctx))
     registry.register(AnimateFeature(ctx))
+    registry.register(FollowUpFeature(ctx))
     if with_member_feature:
         registry.register(MemberFeature(ctx))
     registry.register(PhotoIntentFeature(ctx))
