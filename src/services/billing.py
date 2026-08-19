@@ -15,10 +15,10 @@ from src.core.task_executor import submit_image_task
 
 logger = get_logger("billing")
 
-INSUFFICIENT_MESSAGE = "❌ 點數不足或扣點失敗，本次未進行處理。\n請輸入「點數」查看剩餘點數。"
-FAILURE_MESSAGE = "處理時發生錯誤，點數已退還，請稍後再試 🙏"
-BUSY_MESSAGE = "目前使用人數較多，請稍後再試 🙏"
-DELIVERY_FAILURE_MESSAGE = "結果傳送失敗了，點數已退還，請稍後再試 🙏"
+INSUFFICIENT_MESSAGE = "點數不夠，這次沒有處理。\n輸入「點數」可以看還剩多少。"
+FAILURE_MESSAGE = "處理的時候出了點問題，點數已經退還給您，麻煩晚一點再試。"
+BUSY_MESSAGE = "現在使用的人比較多，麻煩晚一點再試。"
+DELIVERY_FAILURE_MESSAGE = "結果沒能傳給您，點數已經退還，麻煩晚一點再試。"
 
 
 class BillingService:

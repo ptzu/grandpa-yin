@@ -54,7 +54,7 @@ class ColorizeFeature(ReplicateImageFeature):
             self.clear_user_state(user_id)
             self.publisher.process_reply_message(
                 reply_token,
-                TextSendMessage(text="處理圖片時發生錯誤，請稍後再試 🙏"),
+                TextSendMessage(text="處理的時候出了點問題，麻煩晚一點再試。"),
                 user_id,
                 event
             )
@@ -85,7 +85,7 @@ class ColorizeFeature(ReplicateImageFeature):
 
             self.publisher.process_reply_message(
                 reply_token,
-                TextSendMessage(text=f"{user_name}，我已經收到您的珍貴照片了！✨ 正在為您精心處理中，請稍候片刻 🌟"),
+                TextSendMessage(text="照片收到了，我開始處理，請稍等一下。"),
                 user_id,
                 event
             )
@@ -103,7 +103,7 @@ class ColorizeFeature(ReplicateImageFeature):
             self.clear_user_state(user_id)
             self.publisher.process_reply_message(
                 reply_token,
-                TextSendMessage(text="處理圖片時發生錯誤，請稍後再試 🙏"),
+                TextSendMessage(text="處理的時候出了點問題，麻煩晚一點再試。"),
                 user_id,
                 event
             )
@@ -123,7 +123,7 @@ class ColorizeFeature(ReplicateImageFeature):
         self.publisher.process_reply_message(
             reply_token,
             TextSendMessage(
-                text=f"{user_name} 你好！✨\n📸 修復老照片\n\n💎 此功能會消耗 {self.required_points} 點，讓您的珍貴回憶重現色彩！\n\n請上傳一張老照片，我會幫您上色，讓回憶重新綻放光彩 🌈"
+                text=f"{user_name}，請把老照片傳給我，我來幫它上色。\n\n做好會用掉 {self.required_points} 點。"
             ),
             user_id,
             event

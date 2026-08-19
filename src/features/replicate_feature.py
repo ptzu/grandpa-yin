@@ -7,8 +7,8 @@ from .feature_registry import is_global_command
 
 logger = get_logger("replicate_feature")
 
-MAINTENANCE_MESSAGE = "⚠️ 系統維護中，功能暫時無法使用，請稍後再試 🙏"
-PROCESSING_FAILURE_MESSAGE = "處理圖片時發生錯誤，點數已退還，請稍後再試 🙏"
+MAINTENANCE_MESSAGE = "系統正在維護，這個功能暫時不能用，麻煩晚一點再試。"
+PROCESSING_FAILURE_MESSAGE = "處理的時候出了點問題，點數已經退還給您，麻煩晚一點再試。"
 
 
 class ReplicateImageFeature(BaseFeature):
@@ -96,7 +96,7 @@ class ReplicateImageFeature(BaseFeature):
         self.publisher.process_reply_message(
             reply_token,
             TextSendMessage(
-                text=f"❌ 點數不足！\n\n💎 目前點數：{member['points']} 點\n💰 需要點數：{self.required_points} 點\n\n請輸入「點數」查看詳細資訊"
+                text=f"點數不夠喔。\n\n您現在有 {member['points']} 點，這個功能需要 {self.required_points} 點。"
             ),
             user_id,
             event

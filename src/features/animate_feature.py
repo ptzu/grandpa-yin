@@ -85,14 +85,14 @@ class AnimateFeature(ReplicateImageFeature):
                 self.clear_user_state(user_id)
                 self._reply(
                     reply_token, user_id, event,
-                    "好的，已經取消了，沒有扣您的點數 👌\n\n想再試試看的時候，輸入「功能」就可以了。"
+                    "好，取消了，沒有扣點。\n\n想用的時候再輸入「功能」就可以。"
                 )
                 return None
 
             if current_state == STATE_WAITING_IMAGE:
                 self._reply(
                     reply_token, user_id, event,
-                    "還沒收到照片喔 📷\n\n請按輸入框旁的「＋」，選「照片」把要處理的照片傳給我。",
+                    "還沒收到照片喔。\n\n請按輸入框旁邊的「＋」，選「照片」傳給我。",
                     self._cancel_quick_reply()
                 )
                 return None
@@ -142,7 +142,7 @@ class AnimateFeature(ReplicateImageFeature):
             logger.exception(f"照片動起來 handle_image 失敗: {user_id}")
             self.discard_stashed_image(previous_data)
             self.clear_user_state(user_id)
-            self._reply(reply_token, user_id, event, "處理圖片時發生錯誤，請稍後再試 🙏")
+            self._reply(reply_token, user_id, event, "處理的時候出了點問題，麻煩晚一點再試。")
 
         return None
 
@@ -162,9 +162,9 @@ class AnimateFeature(ReplicateImageFeature):
         self.set_user_state(user_id, STATE_WAITING_IMAGE)
         self._reply(
             reply_token, user_id, event,
-            f"{user_name} 你好！✨\n🎬 照片動起來\n\n"
-            f"請傳一張照片給我，我會讓照片裡的人輕輕動起來，做成一小段影片。\n\n"
-            f"💎 確認開始後才會扣 {self.required_points} 點，在那之前都可以隨時取消。",
+            f"{user_name}，請傳一張照片給我，\n"
+            f"我會讓照片裡的人動起來，做成一小段影片。\n\n"
+            f"確定要做之後才會扣 {self.required_points} 點，在那之前都可以取消。",
             self._cancel_quick_reply()
         )
         return None
@@ -173,14 +173,14 @@ class AnimateFeature(ReplicateImageFeature):
         self.set_user_state(user_id, STATE_WAITING_CONFIRM, stash)
         user_name = self.get_user_name(user_id)
         headline = (
-            "已經換成這張新照片了！📷"
+            "好，換成這張新的了。"
             if is_replacement
-            else f"{user_name}，我已經收到您的照片了！📷✨"
+            else f"{user_name}，照片收到了。"
         )
         self._reply(
             reply_token, user_id, event,
-            f"{headline}\n\n我會讓照片裡的人輕輕動起來，做成一段約 5 秒的影片。\n\n"
-            f"💎 開始後會扣 {self.required_points} 點。確定要開始嗎？",
+            f"{headline}\n\n我會讓照片裡的人動起來，做成一段大約 5 秒的影片。\n\n"
+            f"開始之後會扣 {self.required_points} 點，確定嗎？",
             self._confirm_quick_reply()
         )
 
@@ -189,13 +189,13 @@ class AnimateFeature(ReplicateImageFeature):
         try:
             if not self.has_stashed_image(state_data):
                 self.clear_user_state(user_id)
-                self._reply(reply_token, user_id, event, "找不到您上傳的照片，請重新傳一次給我 🙏")
+                self._reply(reply_token, user_id, event, "找不到剛才那張照片，麻煩再傳一次給我。")
                 return None
 
             image_bytes = self.load_stashed_image(state_data)
             if not image_bytes:
                 self.clear_user_state(user_id)
-                self._reply(reply_token, user_id, event, "找不到您上傳的照片，請重新傳一次給我 🙏")
+                self._reply(reply_token, user_id, event, "找不到剛才那張照片，麻煩再傳一次給我。")
                 return None
 
             # 縮圖沿用用戶原本那張照片。取不到網址就不做（沒有縮圖 LINE 不接受
@@ -204,7 +204,7 @@ class AnimateFeature(ReplicateImageFeature):
             if not preview_url:
                 self.discard_stashed_image(state_data)
                 self.clear_user_state(user_id)
-                self._reply(reply_token, user_id, event, "處理過程發生錯誤，請稍後再試 🙏")
+                self._reply(reply_token, user_id, event, "處理的時候出了點問題，麻煩晚一點再試。")
                 return None
 
             # 保留 image_key：它同時是影片訊息的縮圖，不能在這裡被自動清掉
@@ -212,7 +212,7 @@ class AnimateFeature(ReplicateImageFeature):
 
             self._reply(
                 reply_token, user_id, event,
-                f"{user_name}，開始為您製作影片了！🎬\n\n這個比較花時間，請稍候片刻 ✨"
+                f"好，開始做影片了。\n\n這個比較花時間，請稍等一下。"
             )
             self.start_loading_animation(user_id)
 
@@ -232,7 +232,7 @@ class AnimateFeature(ReplicateImageFeature):
         except Exception:
             logger.exception(f"照片動起來確認處理失敗: {user_id}")
             self.clear_user_state(user_id)
-            self._reply(reply_token, user_id, event, "處理過程發生錯誤，請稍後再試 🙏")
+            self._reply(reply_token, user_id, event, "處理的時候出了點問題，麻煩晚一點再試。")
 
         return None
 

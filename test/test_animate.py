@@ -134,7 +134,7 @@ class TestThumbnailLifecycle:
         env.send_text("確定開始")
 
         assert env.member.deductions == [], "做不出合規網址就不該扣點"
-        assert "錯誤" in env.last_text
+        assert "出了點問題" in env.last_text
 
     def test_delivery_failure_refunds_the_points(self, monkeypatch):
         """萬一還是被 LINE 退件，點數要退回去"""
@@ -158,7 +158,7 @@ class TestThumbnailLifecycle:
         env.send_text("確定開始")
 
         assert env.member.deductions == [], "做不出來就不能扣點"
-        assert "錯誤" in env.last_text
+        assert "出了點問題" in env.last_text
         assert env.state is None
 
 
@@ -181,7 +181,7 @@ class TestGuards:
 
         env.send_text("照片動起來")
 
-        assert "點數不足" in env.last_text
+        assert "點數不夠" in env.last_text
         assert env.state is None
 
     def test_model_failure_refunds(self):

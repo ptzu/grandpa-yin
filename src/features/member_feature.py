@@ -42,7 +42,7 @@ class MemberFeature(BaseFeature):
             member = self.member_service.get_or_create_member(user_id, user_name)
             
             if not member:
-                self.publisher.reply_text(reply_token, "❌ 無法取得會員資料，請稍後再試", user_id, event)
+                self.publisher.reply_text(reply_token, "現在查不到您的資料，麻煩晚一點再試。", user_id, event)
                 return "OK"
             
             # 從字典中提取所需的屬性值
@@ -68,21 +68,18 @@ class MemberFeature(BaseFeature):
             }
             emoji = status_emoji.get(status, '❓')
             
-            response = f"""💰 點數查詢
+            status_line = "" if status == "normal" else f"\n狀態：{status_text}"
+            response = f"""{display_name}，您還有 {points} 點。{status_line}
 
-👤 {display_name}
-💎 剩餘點數：{points} 點
-{emoji} 會員狀態：{status_text}
-
-輸入「歷史」查看交易記錄
-輸入「會員資訊」查看完整資料"""
+想看用過哪些，輸入「歷史」
+想看完整資料，輸入「會員」"""
             
             self.publisher.reply_text(reply_token, response, user_id, event)
             return "OK"
             
         except Exception:
             logger.exception(f"查詢點數失敗: {user_id}")
-            self.publisher.reply_text(reply_token, "❌ 查詢失敗，請稍後再試", user_id, event)
+            self.publisher.reply_text(reply_token, "現在查不到，麻煩晚一點再試。", user_id, event)
             return "OK"
     
     def _handle_history_query(self, user_id: str, user_name: str, reply_token: str, event: dict):
@@ -92,7 +89,7 @@ class MemberFeature(BaseFeature):
             member = self.member_service.get_or_create_member(user_id, user_name)
             
             if not member:
-                self.publisher.reply_text(reply_token, "❌ 無法取得會員資料，請稍後再試", user_id, event)
+                self.publisher.reply_text(reply_token, "現在查不到您的資料，麻煩晚一點再試。", user_id, event)
                 return "OK"
             
             # 從字典中提取點數
@@ -102,16 +99,14 @@ class MemberFeature(BaseFeature):
             transactions = self.member_service.get_point_history(user_id, limit=10)
             
             if not transactions:
-                response = f"""📊 交易記錄
+                response = f"""還沒有任何紀錄。
 
-目前沒有任何交易記錄
-
-💎 目前點數：{current_points} 點"""
+您現在有 {current_points} 點。"""
                 self.publisher.reply_text(reply_token, response, user_id, event)
                 return "OK"
             
             # 組合回應訊息
-            response_lines = ["📊 交易記錄（最近 10 筆）\n"]
+            response_lines = ["最近的紀錄：\n"]
             
             for trans in transactions:
                 # 格式化時間
@@ -120,11 +115,11 @@ class MemberFeature(BaseFeature):
                 
                 # 交易類型顯示
                 type_map = {
-                    'earn': '🎁 獲得',
-                    'spend': '💳 消費',
-                    'admin_add': '➕ 管理員增加',
-                    'admin_deduct': '➖ 管理員扣除',
-                    'expire': '⏰ 過期'
+                    'earn': '獲得',
+                    'spend': '使用',
+                    'admin_add': '增加',
+                    'admin_deduct': '扣除',
+                    'expire': '過期'
                 }
                 type_str = type_map.get(trans['transaction_type'], trans['transaction_type'])
                 
@@ -135,10 +130,10 @@ class MemberFeature(BaseFeature):
                 # 描述
                 desc = trans['description'] or "無說明"
                 
-                line = f"{time_str} {type_str}\n{points_str} 點 → 餘額 {trans['balance_after']} 點\n說明：{desc}\n"
+                line = f"{time_str}　{type_str} {points_str} 點（剩 {trans['balance_after']} 點）\n{desc}\n"
                 response_lines.append(line)
             
-            response_lines.append(f"\n💎 目前點數：{current_points} 點")
+            response_lines.append(f"\n您現在有 {current_points} 點。")
             response = "\n".join(response_lines)
             
             self.publisher.reply_text(reply_token, response, user_id, event)
@@ -146,7 +141,7 @@ class MemberFeature(BaseFeature):
             
         except Exception:
             logger.exception(f"查詢交易記錄失敗: {user_id}")
-            self.publisher.reply_text(reply_token, "❌ 查詢失敗，請稍後再試", user_id, event)
+            self.publisher.reply_text(reply_token, "現在查不到，麻煩晚一點再試。", user_id, event)
             return "OK"
     
     def _handle_member_info(self, user_id: str, user_name: str, reply_token: str, event: dict):
@@ -156,7 +151,7 @@ class MemberFeature(BaseFeature):
             member = self.member_service.get_or_create_member(user_id, user_name)
             
             if not member:
-                self.publisher.reply_text(reply_token, "❌ 無法取得會員資料，請稍後再試", user_id, event)
+                self.publisher.reply_text(reply_token, "現在查不到您的資料，麻煩晚一點再試。", user_id, event)
                 return "OK"
             
             # 從字典中提取所需的屬性值
@@ -185,22 +180,17 @@ class MemberFeature(BaseFeature):
             else:
                 created_at_str = "未知"
             
-            response = f"""👤 會員資訊
+            response = f"""{display_name}
 
-📝 姓名：{display_name}
-🆔 ID：{user_id[:8]}...
-💎 剩餘點數：{points} 點
-📊 會員狀態：{status_text}
-📅 註冊日期：{created_at_str}
-
-輸入「點數」查看點數
-輸入「歷史」查看交易記錄"""
+點數：{points} 點
+狀態：{status_text}
+加入時間：{created_at_str}"""
             
             self.publisher.reply_text(reply_token, response, user_id, event)
             return "OK"
             
         except Exception:
             logger.exception(f"查詢會員資訊失敗: {user_id}")
-            self.publisher.reply_text(reply_token, "❌ 查詢失敗，請稍後再試", user_id, event)
+            self.publisher.reply_text(reply_token, "現在查不到，麻煩晚一點再試。", user_id, event)
             return "OK"
 

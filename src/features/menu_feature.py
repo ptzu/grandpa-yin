@@ -41,7 +41,7 @@ class MenuFeature(BaseFeature):
             QuickReplyButton(action=MessageAction(label="📸 修復老照片", text="修復老照片")),
             QuickReplyButton(action=MessageAction(label="🎬 照片動起來", text="照片動起來")),
             QuickReplyButton(action=MessageAction(label="🎨 圖片編輯", text="圖片編輯")),
-            QuickReplyButton(action=MessageAction(label="💎 點數查詢", text="點數")),
+            QuickReplyButton(action=MessageAction(label="💎 我的點數", text="點數")),
             QuickReplyButton(action=MessageAction(label="❓ 使用說明", text="使用說明")),
         ]
         
@@ -50,7 +50,7 @@ class MenuFeature(BaseFeature):
         result = self.publisher.process_reply_message(
             reply_token,
             TextSendMessage(
-                text=f"{user_name} 你好！✨\n🤖 請選擇您想要的功能：",
+                text=f"{user_name}，想做什麼呢？",
                 quick_reply=quick_reply
             ),
             user_id,
@@ -64,38 +64,21 @@ class MenuFeature(BaseFeature):
         colorize_cost = get_model_config("colorize").cost
         edit_cost = get_model_config("edit").cost
         animate_cost = get_model_config("animate").cost
-        help_message = f"""{user_name} 你好！✨
-❓ 使用說明
+        help_message = f"""{user_name}，我會做這三件事：
 
-🤖 這個 LINE Bot 為您提供以下貼心服務：
+📸 修復老照片（{colorize_cost} 點）
+把泛黃或黑白的老照片變成彩色的。
 
-📸 修復老照片：
-- 上傳您的珍貴黑白照片
-- 自動進行精心的彩色化處理
-- 讓回憶重新綻放光彩 🌈
-- 支援 JPEG 格式
+🎬 照片動起來（{animate_cost} 點）
+讓照片裡的人動起來，做成一段大約 5 秒的影片。
 
-🎬 照片動起來：
-- 上傳一張照片
-- 讓照片裡的人輕輕動起來
-- 做成一段約 5 秒的小影片 ✨
+🎨 圖片編輯（{edit_cost} 點）
+照您說的修改照片，例如換背景、換衣服顏色。
+可以從選單點，也可以自己打字說。
 
-🖼️ 圖片編輯：
-- 上傳任何圖片
-- 從選單點選想要的效果，或自己打字描述
-- 確認之後才開始扣點，隨時可以取消 ✨
-- AI 智能編輯，讓圖片煥然一新
+最簡單的用法是直接把照片傳給我，我會問您想做什麼。
 
-💎 點數查詢：
-- 查看剩餘點數
-- 會員狀態顯示
-- 快速點數管理
-
-💡 貼心提醒：
-- 最簡單的用法：直接把照片傳給我，我會問您想做什麼 📷
-- 輸入「功能」開啟功能選單
-- 修復老照片 {colorize_cost} 點、圖片編輯 {edit_cost} 點、照片動起來 {animate_cost} 點 💎
-- 輸入「點數」查看剩餘點數"""
+想知道還有多少點，輸入「點數」就可以了。"""
         
         result = self.publisher.process_reply_message(
             reply_token,

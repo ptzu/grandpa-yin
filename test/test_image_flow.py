@@ -193,7 +193,7 @@ class TestGuards:
 
         env.send_text("照我說的修改")
 
-        assert "點數不足" in env.last_text
+        assert "點數不夠" in env.last_text
         assert env.member.deductions == []
         assert env.state is None, "狀態要收拾乾淨"
         assert env.storage.objects == {}, "不留孤兒檔"

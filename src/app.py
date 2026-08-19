@@ -362,40 +362,20 @@ def handle_follow_event(event):
 
         # 發送歡迎訊息（新舊會員不同內容）
         if is_new_member:
-            welcome_message = f"""🎉 歡迎加入！
+            welcome_message = f"""{member['display_name']}，歡迎！
 
-👤 會員註冊成功
-📝 姓名：{member['display_name']}
-💎 點數：{member['points']} 點"""
+您現在有 {member['points']} 點。
 
-            if bonus_granted:
-                welcome_message += f"\n🎁 註冊獎勵：+{welcome_points} 點"
+最簡單的用法：直接把照片傳給我，我會問您想做什麼。
 
-            welcome_message += """
-
-📋 使用說明：
-• 最簡單：直接傳一張照片給我，我會問您想做什麼 📷
-• 輸入「功能」查看功能表
-• 輸入「點數」查看剩餘點數
-• 輸入「修復老照片」幫老照片上色
-• 輸入「圖片編輯」編輯照片
-
-💡 開始使用吧！"""
+想看我會做哪些事，輸入「功能」就可以了。"""
         else:
             # 舊會員重新加入
-            welcome_message = f"""👋 歡迎回來！
+            welcome_message = f"""{member['display_name']}，歡迎回來！
 
-📝 姓名：{member['display_name']}
-💎 剩餘點數：{member['points']} 點
+您還有 {member['points']} 點。
 
-📋 使用說明：
-• 最簡單：直接傳一張照片給我，我會問您想做什麼 📷
-• 輸入「功能」查看功能表
-• 輸入「點數」查看剩餘點數
-• 輸入「修復老照片」幫老照片上色
-• 輸入「圖片編輯」編輯照片
-
-💡 繼續使用吧！"""
+直接把照片傳給我就可以開始了。"""
 
         # 發送歡迎訊息
         try:
