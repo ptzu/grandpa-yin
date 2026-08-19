@@ -72,16 +72,33 @@ features:
       fps: 24
 
   # 圖片彩色化：傳黑白照 → 自動上色
+  #
+  # 2026-08 換掉原本的 flux-kontext-apps/restore-image：那是「修復」導向的
+  # 模型（去刮痕、去噪很強），上色只是附帶，實測遇到泛黃的翻拍老照片時
+  # 幾乎不上色，長輩會覺得「怎麼沒變彩色」。改用通用編輯模型並明確下達
+  # 上色指令，效果好很多。
+  #
+  # default_prompt 特別交代「不要改動任何中文字」：老照片常有匾額、題字、
+  # 日期，生成式模型很容易把字重寫錯，而那往往是照片的歷史核心。
   colorize:
-    model: flux-kontext-apps/restore-image
+    model: google/nano-banana-2
     cost: 10
     loading_seconds: 30
     input:
-      image_field: input_image
-      image_is_list: false
-      # 彩色化不送文字描述
-      prompt_field: null
-    extra_input: {}
+      image_field: image_input
+      image_is_list: true
+      prompt_field: prompt
+      default_prompt: >
+        Restore and colorize this old photograph with natural, realistic,
+        period-accurate colors. Remove any sepia or yellow cast and produce
+        true colors with realistic skin tones and natural daylight.
+        CRITICAL: preserve all Chinese characters, calligraphy, plaques and
+        handwritten dates EXACTLY as they appear — never redraw, correct or
+        invent text. Keep every person's face, expression, hairstyle and
+        clothing identical; keep the original composition, framing and
+        photographic grain. Do not add or remove anything.
+    extra_input:
+      output_format: jpg
 
 # ══════════════════════════════════════════════════════════════
 # 會員
