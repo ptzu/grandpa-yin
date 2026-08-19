@@ -137,7 +137,8 @@ class MessagePublisher:
             event: LINE webhook event（用於判斷是否為群組聊天）
 
         Returns:
-            None（統一回傳）
+            bool: 是否送達。呼叫端據此決定要不要退點——推送失敗代表用戶
+            沒收到東西，扣了點就是白扣。
         """
         if event and self._is_group_chat(event):
             target_id = self._get_target_id(event)
@@ -145,8 +146,7 @@ class MessagePublisher:
             target_id = user_id
 
         # 推送多在背景執行緒進行，可承受重試；reply token 為一次性故 reply 不重試
-        self._send_with_retry(
+        return self._send_with_retry(
             lambda: self.line_bot_api.push_message(target_id, messages),
             f"推送訊息 (target={target_id})"
         )
-        return None

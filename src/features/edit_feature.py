@@ -103,7 +103,7 @@ class EditFeature(ReplicateImageFeature):
                 # 等圖片時收到文字：明確引導，而不是靜默丟棄
                 self._reply(
                     reply_token, user_id, event,
-                    "還沒收到照片喔 📷\n\n請按輸入框旁的「＋」，選「照片」把要編輯的照片傳給我。",
+                    "還沒收到照片喔。\n\n請按輸入框旁邊的「＋」，選「照片」傳給我。",
                     self._cancel_quick_reply()
                 )
                 return None
@@ -112,7 +112,7 @@ class EditFeature(ReplicateImageFeature):
                 if message == CMD_CUSTOM_DESCRIPTION:
                     self._reply(
                         reply_token, user_id, event,
-                        "好的，請直接打字告訴我想怎麼修改 ✏️\n例如：「把背景換成公園」、「加上一頂帽子」。",
+                        "好，請打字告訴我想怎麼修改。\n例如：「把背景換成公園」、「加上一頂帽子」。",
                         self._cancel_quick_reply()
                     )
                     return None
@@ -199,9 +199,9 @@ class EditFeature(ReplicateImageFeature):
 
         self._reply(
             reply_token, user_id, event,
-            f"{user_name} 你好！✨\n🎨 圖片編輯功能\n\n"
-            f"請先傳一張想要編輯的照片給我，接著我會給您幾個修改選項。\n\n"
-            f"💎 確認開始後才會扣 {self.required_points} 點，在那之前都可以隨時取消。",
+            f"{user_name}，請先傳一張照片給我，\n"
+            f"接著我會給您幾個修改的選項。\n\n"
+            f"確定要改之後才會扣 {self.required_points} 點，在那之前都可以取消。",
             self._cancel_quick_reply()
         )
         return None
@@ -212,14 +212,14 @@ class EditFeature(ReplicateImageFeature):
 
         user_name = self.get_user_name(user_id)
         headline = (
-            "已經換成這張新照片了！📷"
+            "好，換成這張新的了。"
             if is_replacement
-            else f"{user_name}，我已經收到您的照片了！📷✨"
+            else f"{user_name}，照片收到了。"
         )
 
         self._reply(
             reply_token, user_id, event,
-            f"{headline}\n\n請問想怎麼修改呢？\n下面點一個就好，也可以自己打字告訴我 👇",
+            f"{headline}\n\n想怎麼修改呢？下面點一個就好，也可以自己打字告訴我。",
             self._description_quick_reply()
         )
 
@@ -227,7 +227,7 @@ class EditFeature(ReplicateImageFeature):
         """收到編輯描述 → 進入確認階段（此時仍未扣點）"""
         if not self.has_stashed_image(state_data):
             self.clear_user_state(user_id)
-            self._reply(reply_token, user_id, event, "找不到您上傳的圖片，請重新開始圖片編輯流程。")
+            self._reply(reply_token, user_id, event, "找不到剛才那張照片，麻煩重新開始一次。")
             return None
 
         # 保留圖片位置，附加描述
@@ -237,8 +237,8 @@ class EditFeature(ReplicateImageFeature):
 
         self._reply(
             reply_token, user_id, event,
-            f"我會這樣修改您的照片：\n\n「{description}」\n\n"
-            f"💎 開始後會扣 {self.required_points} 點。確定要開始嗎？",
+            f"我會這樣改：\n\n「{description}」\n\n"
+            f"開始之後會扣 {self.required_points} 點，確定嗎？",
             self._confirm_quick_reply()
         )
         return None
@@ -250,7 +250,7 @@ class EditFeature(ReplicateImageFeature):
 
         self._reply(
             reply_token, user_id, event,
-            "沒問題，照片留著就好 📷\n\n請重新告訴我想怎麼修改 👇",
+            "好，照片我留著。\n\n請重新告訴我想怎麼修改。",
             self._description_quick_reply()
         )
         return None
@@ -261,7 +261,7 @@ class EditFeature(ReplicateImageFeature):
         self.clear_user_state(user_id)
         self._reply(
             reply_token, user_id, event,
-            "好的，已經取消了，沒有扣您的點數 👌\n\n想再試試看的時候，輸入「!功能」就可以了。"
+            "好，取消了，沒有扣點。\n\n想用的時候再輸入「功能」就可以。"
         )
         return None
 
@@ -273,7 +273,7 @@ class EditFeature(ReplicateImageFeature):
         try:
             if not description or not self.has_stashed_image(state_data):
                 self.clear_user_state(user_id)
-                self._reply(reply_token, user_id, event, "找不到您上傳的圖片，請重新開始圖片編輯流程。")
+                self._reply(reply_token, user_id, event, "找不到剛才那張照片，麻煩重新開始一次。")
                 return None
 
             # 先取回圖片再回覆，取不回來時外層 except 還能用 reply_token 告知用戶
@@ -288,7 +288,7 @@ class EditFeature(ReplicateImageFeature):
 
             self._reply(
                 reply_token, user_id, event,
-                f"{user_name}，開始為您處理了！🎨\n\n編輯描述：「{description}」\n\n請稍候片刻 ✨"
+                f"好，開始處理了。\n\n要改的是：「{description}」\n\n請稍等一下。"
             )
             self.start_loading_animation(user_id)
 
@@ -302,6 +302,6 @@ class EditFeature(ReplicateImageFeature):
         except Exception:
             logger.exception(f"圖片編輯確認處理失敗: {user_id}")
             self.clear_user_state(user_id)
-            self._reply(reply_token, user_id, event, "處理過程發生錯誤，請稍後再試 🙏")
+            self._reply(reply_token, user_id, event, "處理的時候出了點問題，麻煩晚一點再試。")
 
         return None

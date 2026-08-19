@@ -9,6 +9,35 @@ from src.services.account_backend import get_account_backend
 
 logger = get_logger("user_state")
 
+# state_metadata 是 JSONB，可能裝著整張 base64 照片（Storage 未設定時的降級
+# 路徑）。直接印會讓單行 log 膨脹到十幾萬字元，把周圍真正有用的訊息洗掉——
+# 排查事故時這是致命的。所以 log 只描述「有什麼」，不印內容本身。
+_MAX_LOGGED_VALUE = 80
+
+
+def _loggable(state: Optional[Dict[str, Any]]) -> str:
+    """把 state 濃縮成一行摘要：長值只留型別與大小，不印內容"""
+    if not state:
+        return "無"
+
+    parts = []
+    for key in ("feature", "state"):
+        if state.get(key):
+            parts.append(f"{key}={state[key]}")
+
+    data = state.get("data") or {}
+    if isinstance(data, dict):
+        for key, value in data.items():
+            text = str(value)
+            if len(text) > _MAX_LOGGED_VALUE:
+                parts.append(f"{key}=<{len(text)} 字元>")
+            else:
+                parts.append(f"{key}={text}")
+    elif data:
+        parts.append(f"data=<{type(data).__name__}>")
+
+    return " ".join(parts) or "空"
+
 
 class UserStateManager:
     """用戶狀態管理器（使用 grandpa_yin.bot_sessions）"""
@@ -40,7 +69,7 @@ class UserStateManager:
                     replaced = dict(existing.state_metadata or {})
                     existing.current_state = current_state
                     existing.state_metadata = data
-                    logger.debug(f"用戶 {user_id} 狀態已更新: {state}")
+                    logger.debug(f"用戶 {user_id} 狀態已更新: {_loggable(state)}")
                 else:
                     replaced = None
                     session.add(BotSession(
@@ -48,7 +77,7 @@ class UserStateManager:
                         current_state=current_state,
                         state_metadata=data,
                     ))
-                    logger.debug(f"用戶 {user_id} 狀態已建立: {state}")
+                    logger.debug(f"用戶 {user_id} 狀態已建立: {_loggable(state)}")
 
                 session.commit()
                 return replaced
@@ -98,7 +127,7 @@ class UserStateManager:
                     removed = dict(bot_session.state_metadata or {})
                     session.delete(bot_session)
                     session.commit()
-                    logger.debug(f"用戶 {user_id} 狀態已清除 (原狀態: {old_state})")
+                    logger.debug(f"用戶 {user_id} 狀態已清除 (原狀態: {_loggable(old_state)})")
                     return removed
 
                 logger.debug(f"用戶 {user_id} 沒有狀態需要清除")

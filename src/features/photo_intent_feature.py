@@ -15,6 +15,7 @@ CMD_CANCEL = "取消"
 CHOICES = {
     "幫照片上色": "colorize",
     "照我說的修改": "edit",
+    "讓照片動起來": "animate",
 }
 
 
@@ -71,7 +72,7 @@ class PhotoIntentFeature(BaseFeature):
         if not is_own_state and previous_state.get("state") == "processing":
             self._reply(
                 reply_token, user_id, event,
-                "上一張照片還在處理中，好了會馬上傳給您 ⏳\n\n這張請稍等一下再傳給我 🙏"
+                "上一張還在處理，好了馬上傳給您。\n\n這張請稍等一下再傳。"
             )
             return None
 
@@ -88,14 +89,14 @@ class PhotoIntentFeature(BaseFeature):
             user_name = self.get_user_name(user_id)
             self._reply(
                 reply_token, user_id, event,
-                f"{user_name}，收到您的照片了！📷\n\n請問想要我幫您做什麼呢？\n點下面的按鈕就可以 👇",
+                f"{user_name}，照片收到了。\n\n想要我幫您做什麼？點下面的按鈕就好。",
                 self._choice_quick_reply()
             )
 
         except Exception:
             logger.exception(f"照片意圖詢問失敗: {user_id}")
             self.clear_user_state(user_id)
-            self._reply(reply_token, user_id, event, "處理圖片時發生錯誤，請稍後再試 🙏")
+            self._reply(reply_token, user_id, event, "處理的時候出了點問題，麻煩晚一點再試。")
 
         return None
 
@@ -118,7 +119,7 @@ class PhotoIntentFeature(BaseFeature):
                 self.clear_user_state(user_id)
                 self._reply(
                     reply_token, user_id, event,
-                    "好的，先不處理這張照片 👌\n\n需要的時候再傳一次給我就可以了。"
+                    "好，這張先不處理。\n\n需要的時候再傳一次給我就好。"
                 )
                 return None
 
@@ -127,14 +128,14 @@ class PhotoIntentFeature(BaseFeature):
                 # 沒看懂：把選項再問一次，而不是讓用戶對著沒反應的畫面猜
                 self._reply(
                     reply_token, user_id, event,
-                    "不好意思，我不太確定您的意思 🙇\n\n請直接點下面的按鈕選一個 👇",
+                    "不好意思，我沒聽懂。\n\n請直接點下面的按鈕選一個。",
                     self._choice_quick_reply()
                 )
                 return None
 
             if not self.has_stashed_image(state_data):
                 self.clear_user_state(user_id)
-                self._reply(reply_token, user_id, event, "找不到剛才的照片，請重新傳一次給我 🙏")
+                self._reply(reply_token, user_id, event, "找不到剛才那張照片，麻煩再傳一次給我。")
                 return None
 
             # 交棒：由目標功能跑自己的 guard 並接手狀態
@@ -169,6 +170,7 @@ class PhotoIntentFeature(BaseFeature):
     def _choice_quick_reply(self) -> QuickReply:
         return QuickReply(items=[
             QuickReplyButton(action=MessageAction(label="📸 幫照片上色", text="幫照片上色")),
+            QuickReplyButton(action=MessageAction(label="🎬 讓照片動起來", text="讓照片動起來")),
             QuickReplyButton(action=MessageAction(label="🎨 照我說的修改", text="照我說的修改")),
             QuickReplyButton(action=MessageAction(label="❌ 取消", text=CMD_CANCEL)),
         ])

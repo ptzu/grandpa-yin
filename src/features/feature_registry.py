@@ -4,23 +4,23 @@ from .base_feature import BaseFeature
 
 logger = get_logger("registry")
 
-# 全局命令：這些命令可以在任何功能狀態下被執行（全專案唯一的一份清單）
+# 全局命令：這些命令可以在任何功能狀態下被執行（全專案唯一的一份清單）。
+#
+# 刻意只留單一寫法，不做同義詞與模糊比對：長輩主要靠 Quick Reply 按鈕操作，
+# 要打字時「一個功能一個詞」比較好記，也避免像過去 `"會員" in message` 那樣
+# 的寬鬆比對把未來功能的指令一併吃掉。
 GLOBAL_COMMANDS = [
-    "點數", "點數查詢", "查看點數", "查詢點數",
-    "歷史", "交易記錄", "記錄",
-    "會員", "會員資訊",
-    "!功能", "功能", "！功能", "使用說明", "其他功能"
+    "點數",
+    "歷史",
+    "會員",
+    "功能",
+    "使用說明",
 ]
 
 
 def is_global_command(message: str) -> bool:
-    """檢查訊息是否為全局命令"""
-    message = message.strip()
-    if message in GLOBAL_COMMANDS:
-        return True
-    if "點數" in message and ("查詢" in message or "查看" in message):
-        return True
-    return False
+    """檢查訊息是否為全局命令（完全比對）"""
+    return message.strip() in GLOBAL_COMMANDS
 
 
 class FeatureRegistry:

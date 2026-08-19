@@ -66,7 +66,7 @@ class TestFailureRefunds:
 
         submit(service, run=lambda: (_ for _ in ()).throw(RuntimeError("boom")))
 
-        assert "點數已退還" in (publisher.last["text"] or "")
+        assert "退還" in (publisher.last["text"] or "")
 
     def test_failure_still_runs_on_finish(self, billing):
         service, _, _ = billing
@@ -87,8 +87,47 @@ class TestInsufficientPoints:
         submit(service, run=lambda: ran.append(True), points=EDIT_COST)
 
         assert ran == [], "扣不到點就不該動用外部資源"
-        assert "點數不足" in (publisher.last["text"] or "")
+        assert "點數不夠" in (publisher.last["text"] or "")
         assert member.refunds == [], "沒扣到就沒得退"
+
+
+class TestDeliveryFailure:
+    """處理成功但送不到用戶手上——等於沒服務到，不能讓人白扣點。
+
+    這條路徑實測會發生：影片訊息的縮圖網址不是 HTTPS 時 LINE 直接退件，
+    當時扣了 25 點、用戶什麼也沒收到。
+    """
+
+    def test_failed_delivery_refunds(self, billing):
+        service, member, publisher = billing
+
+        submit(service, run=lambda: "ok", on_success=lambda r: False)
+
+        assert member.points == 100, "沒送達就要把點數退回去"
+        assert member.refunds == [{"amount": 5, "feature": "edit", "reason": "推送失敗"}]
+
+    def test_failed_delivery_tells_the_user(self, billing):
+        service, _, publisher = billing
+
+        submit(service, run=lambda: "ok", on_success=lambda r: False)
+
+        assert "退還" in (publisher.last["text"] or "")
+
+    def test_successful_delivery_does_not_refund(self, billing):
+        service, member, _ = billing
+
+        submit(service, run=lambda: "ok", on_success=lambda r: True)
+
+        assert member.refunds == []
+        assert member.points == 95
+
+    def test_on_success_returning_none_is_treated_as_delivered(self, billing):
+        """只有明確回傳 False 才算失敗，None 不是"""
+        service, member, _ = billing
+
+        submit(service, run=lambda: "ok", on_success=lambda r: None)
+
+        assert member.refunds == []
 
 
 class TestCapacity:
@@ -101,7 +140,7 @@ class TestCapacity:
 
         assert queued is False
         assert member.points == 100, "沒排進去就不該扣點"
-        assert "使用人數較多" in (publisher.last["text"] or "")
+        assert "使用的人比較多" in (publisher.last["text"] or "")
         assert finished == [True], "狀態要清掉，否則用戶卡在 processing"
 
 
@@ -119,6 +158,6 @@ class TestThroughTheEditFeature:
 
         assert env.member.points == 100, "扣了又退，餘額應回到原點"
         assert env.member.refunds and env.member.refunds[0]["feature"] == "edit"
-        assert "點數已退還" in env.last_text
+        assert "退還" in env.last_text
         assert env.state is None, "失敗後不能把用戶留在 processing"
         assert env.storage.objects == {}, "失敗也不留孤兒圖"

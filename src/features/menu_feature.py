@@ -15,8 +15,7 @@ class MenuFeature(BaseFeature):
     
     def can_handle(self, message: str, user_id: str, user_state=None) -> bool:
         """處理功能選單相關的訊息"""
-        menu_commands = ["!功能", "功能", "！功能", "使用說明", "其他功能"]
-        return message in menu_commands
+        return message.strip() in ("功能", "使用說明")
     
     def handle_text(self, event: dict) -> dict:
         """處理文字訊息"""
@@ -26,12 +25,10 @@ class MenuFeature(BaseFeature):
         user_name = self.get_user_name(user_id)
         
         try:
-            if message in ["!功能", "功能", "！功能"]:
+            if message == "功能":
                 return self._handle_main_menu(reply_token, user_name, user_id, event)
             elif message == "使用說明":
                 return self._handle_help(reply_token, user_name, user_id, event)
-            elif message == "其他功能":
-                return self._handle_other_features(reply_token, user_name, user_id, event)
                 
         except Exception:
             logger.exception("MenuFeature handle_text error")
@@ -41,9 +38,10 @@ class MenuFeature(BaseFeature):
     def _handle_main_menu(self, reply_token: str, user_name: str, user_id: str, event: dict) -> dict:
         """處理主功能選單"""
         quick_reply_buttons = [
-            QuickReplyButton(action=MessageAction(label="📸 圖片彩色化", text="圖片彩色化")),
+            QuickReplyButton(action=MessageAction(label="📸 修復老照片", text="修復老照片")),
+            QuickReplyButton(action=MessageAction(label="🎬 照片動起來", text="照片動起來")),
             QuickReplyButton(action=MessageAction(label="🎨 圖片編輯", text="圖片編輯")),
-            QuickReplyButton(action=MessageAction(label="💎 點數查詢", text="點數")),
+            QuickReplyButton(action=MessageAction(label="💎 我的點數", text="點數")),
             QuickReplyButton(action=MessageAction(label="❓ 使用說明", text="使用說明")),
         ]
         
@@ -52,7 +50,7 @@ class MenuFeature(BaseFeature):
         result = self.publisher.process_reply_message(
             reply_token,
             TextSendMessage(
-                text=f"{user_name} 你好！✨\n🤖 請選擇您想要的功能：",
+                text=f"{user_name}，想做什麼呢？",
                 quick_reply=quick_reply
             ),
             user_id,
@@ -65,33 +63,22 @@ class MenuFeature(BaseFeature):
         # 讀同一份設定，說明文案才不會跟實際扣款金額對不上
         colorize_cost = get_model_config("colorize").cost
         edit_cost = get_model_config("edit").cost
-        help_message = f"""{user_name} 你好！✨
-❓ 使用說明
+        animate_cost = get_model_config("animate").cost
+        help_message = f"""{user_name}，我會做這三件事：
 
-🤖 這個 LINE Bot 為您提供以下貼心服務：
+📸 修復老照片（{colorize_cost} 點）
+把泛黃或黑白的老照片變成彩色的。
 
-🎨 圖片彩色化：
-- 上傳您的珍貴黑白照片
-- 自動進行精心的彩色化處理
-- 讓回憶重新綻放光彩 🌈
-- 支援 JPEG 格式
+🎬 照片動起來（{animate_cost} 點）
+讓照片裡的人動起來，做成一段大約 5 秒的影片。
 
-🖼️ 圖片編輯：
-- 上傳任何圖片
-- 從選單點選想要的效果，或自己打字描述
-- 確認之後才開始扣點，隨時可以取消 ✨
-- AI 智能編輯，讓圖片煥然一新
+🎨 圖片編輯（{edit_cost} 點）
+照您說的修改照片，例如換背景、換衣服顏色。
+可以從選單點，也可以自己打字說。
 
-💎 點數查詢：
-- 查看剩餘點數
-- 會員狀態顯示
-- 快速點數管理
+最簡單的用法是直接把照片傳給我，我會問您想做什麼。
 
-💡 貼心提醒：
-- 最簡單的用法：直接把照片傳給我，我會問您想做什麼 📷
-- 輸入 "!功能" 開啟功能選單
-- 圖片彩色化每次消耗 {colorize_cost} 點、圖片編輯每次消耗 {edit_cost} 點 💎
-- 輸入「點數」查看剩餘點數"""
+想知道還有多少點，輸入「點數」就可以了。"""
         
         result = self.publisher.process_reply_message(
             reply_token,
@@ -101,13 +88,4 @@ class MenuFeature(BaseFeature):
         )
         return result
     
-    def _handle_other_features(self, reply_token: str, user_name: str, user_id: str, event: dict) -> dict:
-        """處理其他功能說明"""
-        result = self.publisher.process_reply_message(
-            reply_token,
-            TextSendMessage(text=f"{user_name} 你好！✨\n🔧 其他功能\n\n更多貼心功能正在精心開發中，敬請期待！🌟\n\n目前為您提供的服務：\n• 🎨 圖片彩色化\n• 🖼️ 圖片編輯\n• 💎 點數查詢\n• 💬 文字對話\n• ❓ 使用說明"),
-            user_id,
-            event  # 傳遞 event 以支援群組聊天
-        )
-        return result
     

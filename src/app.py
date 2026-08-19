@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # .env file, so this is a harmless no-op and platform Variables are used as-is.
 load_dotenv()
 
-from flask import Flask, request, abort
+from flask import Flask, request, abort, Response
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from src.core.app_logger import get_logger, request_id_var
@@ -18,11 +18,13 @@ from src.services.billing import BillingService
 from src.services.message_publisher import MessagePublisher
 from src.services.line_client import LineClient
 from src.services.replicate_client import ReplicateClient
+from src.services.preview_store import LocalPreviewStore, set_public_base_url
 from src.services.user_state_manager import UserStateManager
 from src.features.context import FeatureContext
 from src.features.feature_registry import FeatureRegistry
 from src.features.menu_feature import MenuFeature
 from src.features.colorize_feature import ColorizeFeature
+from src.features.animate_feature import AnimateFeature
 from src.features.edit_feature import EditFeature
 from src.features.member_feature import MemberFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
@@ -40,6 +42,7 @@ publisher = None
 user_state_manager = None
 feature_registry = None
 member_service = None
+preview_store = None
 _initialized = False
 
 # 已處理事件的記憶體快取，防止 LINE webhook 重送造成重複處理／重複扣點。
@@ -65,7 +68,7 @@ def _is_duplicate_event(event_id):
 
 def init():
     """初始化所有 LINE Bot 相關組件"""
-    global app, line_bot_api, handler, publisher, user_state_manager, feature_registry, member_service, _initialized
+    global app, line_bot_api, handler, publisher, user_state_manager, feature_registry, member_service, preview_store, _initialized
     
     # 如果已經初始化過，直接返回
     if _initialized:
@@ -120,7 +123,10 @@ def init():
     else:
         logger.warning("Supabase Storage 未設定，圖片編輯將以 base64 暫存於資料庫 state")
 
-    # 7. 組裝功能的依賴（新增依賴只要加在 FeatureContext，不必動每個 feature 的建構子）
+    # 7. 影片縮圖的本地降級（Storage 未設定時由本服務自己供圖）
+    preview_store = LocalPreviewStore()
+
+    # 8. 組裝功能的依賴（新增依賴只要加在 FeatureContext，不必動每個 feature 的建構子）
     ctx = FeatureContext(
         line=line_client,
         publisher=publisher,
@@ -129,13 +135,15 @@ def init():
         replicate=ReplicateClient(),
         member_service=member_service,
         storage_service=storage_service,
+        preview_store=preview_store,
     )
 
-    # 8. 註冊所有功能
+    # 9. 註冊所有功能
     feature_registry = FeatureRegistry(user_state_manager)
     feature_registry.register(MenuFeature(ctx))
     feature_registry.register(ColorizeFeature(ctx))
     feature_registry.register(EditFeature(ctx))
+    feature_registry.register(AnimateFeature(ctx))
 
     # 註冊會員功能（如果會員服務可用）
     if member_service:
@@ -169,12 +177,32 @@ def main():
     logger.info(f"服務運行在: http://0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port, debug=debug_mode)
 
+def _public_base_url():
+    """本服務對外的 origin（scheme + host）。
+
+    ngrok 與 Railway 都在前面終止 TLS，轉進來的是普通 http，所以
+    `request.url_root` 的 scheme 會是 http——而 LINE 明確拒收非 HTTPS 的
+    圖片／影片網址（"Must be a valid HTTPS URL"）。scheme 必須取自
+    X-Forwarded-Proto 才會正確。
+
+    PUBLIC_BASE_URL 可覆寫，供代理層沒有送這些 header 的環境使用。
+    """
+    explicit = os.getenv("PUBLIC_BASE_URL")
+    if explicit:
+        return explicit.rstrip("/")
+    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+    host = request.headers.get("X-Forwarded-Host", request.host)
+    return f"{scheme}://{host}"
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     # 每個 request 一個追蹤 ID，log、Sentry 事件與背景工作都會帶上
     request_id = uuid.uuid4().hex[:8]
     request_id_var.set(request_id)
     set_request_context(request_id=request_id)
+    # 讓需要對外連結的功能（影片縮圖）知道本服務的公開網址
+    set_public_base_url(_public_base_url())
 
     # 如果模組載入時初始化失敗，在這裡重試一次
     if not _initialized:
@@ -242,6 +270,26 @@ def webhook():
     except Exception:
         logger.exception("Webhook error")
         abort(500)
+
+@app.route("/preview/<token>", methods=["GET"])
+def preview(token):
+    """供 LINE 抓取影片訊息的縮圖（Storage 未設定時的降級路徑）。
+
+    只在 Storage 未設定時會被用到；正式環境的縮圖走 Supabase signed URL，
+    這條路由不會有流量。token 是 32 位隨機 hex，猜不到也列舉不了。
+    """
+    if preview_store is None:
+        abort(503)
+
+    image_bytes = preview_store.load(token)
+    if not image_bytes:
+        abort(404)
+
+    return Response(
+        image_bytes,
+        mimetype="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 def handle_text_message(event):
     """處理文字訊息，委託給 FeatureRegistry"""
@@ -314,40 +362,20 @@ def handle_follow_event(event):
 
         # 發送歡迎訊息（新舊會員不同內容）
         if is_new_member:
-            welcome_message = f"""🎉 歡迎加入！
+            welcome_message = f"""{member['display_name']}，歡迎！
 
-👤 會員註冊成功
-📝 姓名：{member['display_name']}
-💎 點數：{member['points']} 點"""
+您現在有 {member['points']} 點。
 
-            if bonus_granted:
-                welcome_message += f"\n🎁 註冊獎勵：+{welcome_points} 點"
+最簡單的用法：直接把照片傳給我，我會問您想做什麼。
 
-            welcome_message += """
-
-📋 使用說明：
-• 最簡單：直接傳一張照片給我，我會問您想做什麼 📷
-• 輸入「!功能」查看功能表
-• 輸入「點數」查看剩餘點數
-• 輸入「圖片彩色化」處理黑白照片
-• 輸入「圖片編輯」編輯照片
-
-💡 開始使用吧！"""
+想看我會做哪些事，輸入「功能」就可以了。"""
         else:
             # 舊會員重新加入
-            welcome_message = f"""👋 歡迎回來！
+            welcome_message = f"""{member['display_name']}，歡迎回來！
 
-📝 姓名：{member['display_name']}
-💎 剩餘點數：{member['points']} 點
+您還有 {member['points']} 點。
 
-📋 使用說明：
-• 最簡單：直接傳一張照片給我，我會問您想做什麼 📷
-• 輸入「!功能」查看功能表
-• 輸入「點數」查看剩餘點數
-• 輸入「圖片彩色化」處理黑白照片
-• 輸入「圖片編輯」編輯照片
-
-💡 繼續使用吧！"""
+直接把照片傳給我就可以開始了。"""
 
         # 發送歡迎訊息
         try:

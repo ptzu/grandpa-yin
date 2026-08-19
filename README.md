@@ -17,11 +17,14 @@
 
 | 功能 | 觸發指令 | 說明 | 點數 |
 |---|---|---|---|
-| 功能選單 | `!功能`、`使用說明` | Quick Reply 選單，引導其餘功能 | — |
+| 功能選單 | `功能`、`使用說明` | Quick Reply 選單，引導其餘功能 | — |
 | 照片意圖詢問 | **直接傳照片** | 沒先選功能就上傳的照片由它接住，Quick Reply 問要上色還是修改 | — |
-| 圖片彩色化 | `圖片彩色化` | 上傳黑白照 → AI 自動上色 | 10（可設定）|
+| 修復老照片 | `修復老照片` | 上傳老照片 → AI 自動上色 | 10（可設定）|
 | 圖片編輯 | `圖片編輯` | 傳圖 → 點選（或自行輸入）編輯描述 → 確認後才扣點 | 5（可設定）|
+| 照片動起來 | `照片動起來` | 傳圖 → 確認後產生約 5 秒微動影片 | 25（可設定）|
 | 會員／點數 | `會員`、`點數`、`歷史` | 查詢點數餘額與交易記錄 | — |
+
+> 指令刻意只留單一寫法（一個功能一個詞），不做同義詞比對；長輩主要靠 Quick Reply 按鈕操作。清單見 `src/features/feature_registry.py` 的 `GLOBAL_COMMANDS`，`test/test_commands.py` 有把關。
 
 - **模型、點數、贈點都在 `config/settings.yml`**，換模型／調價不必改程式碼（見下方）。
 - 新用戶加好友自動建立會員並贈送 `members.welcome_points`（預設 50）點。
@@ -152,6 +155,7 @@ src/                      ── 核心程式碼
     context.py            FeatureContext：功能的依賴集合
     feature_registry.py   訊息路由與功能註冊
     photo_intent_feature.py  圖片路由 catch-all：先傳圖再問意圖
+    animate_feature.py    照片動起來（唯一輸出影片的功能）
     menu / colorize / edit / member_feature.py
     replicate_feature.py  Replicate 圖片功能的共用對話面
   services/               外部系統與領域狀態的封裝

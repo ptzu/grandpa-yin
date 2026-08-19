@@ -15,9 +15,10 @@ from src.core.task_executor import submit_image_task
 
 logger = get_logger("billing")
 
-INSUFFICIENT_MESSAGE = "❌ 點數不足或扣點失敗，本次未進行處理。\n請輸入「點數」查看剩餘點數。"
-FAILURE_MESSAGE = "處理時發生錯誤，點數已退還，請稍後再試 🙏"
-BUSY_MESSAGE = "目前使用人數較多，請稍後再試 🙏"
+INSUFFICIENT_MESSAGE = "點數不夠，這次沒有處理。\n輸入「點數」可以看還剩多少。"
+FAILURE_MESSAGE = "處理的時候出了點問題，點數已經退還給您，麻煩晚一點再試。"
+BUSY_MESSAGE = "現在使用的人比較多，麻煩晚一點再試。"
+DELIVERY_FAILURE_MESSAGE = "結果沒能傳給您，點數已經退還，麻煩晚一點再試。"
 
 
 class BillingService:
@@ -33,7 +34,8 @@ class BillingService:
 
         Args:
             run: zero-arg callable producing the result (runs on a worker thread)
-            on_success: called with run()'s result to deliver it to the user
+            on_success: called with run()'s result to deliver it to the user;
+                回傳 False 代表沒送達，會退點並告知用戶
             on_finish: always called once the task settles, and also when the
                 pool rejects it — the place to reset user state
             failure_message: user-facing text when run() raises; points are
@@ -67,7 +69,16 @@ class BillingService:
                     )
                     return
 
-                on_success(result)
+                # 送不到就等於沒服務到。這條路徑真的會發生（例如訊息裡的
+                # 網址不合 LINE 規定），過去只會留下一行 log，用戶白扣點。
+                if on_success(result) is False:
+                    logger.error(f"{feature_type} 處理成功但推送失敗，退還點數: {user_id}")
+                    self._member_service.refund_points(
+                        user_id, points, feature_type=feature_type, reason="推送失敗"
+                    )
+                    self._publisher.process_push_message(
+                        user_id, TextSendMessage(text=DELIVERY_FAILURE_MESSAGE), event
+                    )
             finally:
                 if on_finish:
                     on_finish()

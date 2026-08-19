@@ -7,8 +7,8 @@ from .feature_registry import is_global_command
 
 logger = get_logger("replicate_feature")
 
-MAINTENANCE_MESSAGE = "⚠️ 系統維護中，功能暫時無法使用，請稍後再試 🙏"
-PROCESSING_FAILURE_MESSAGE = "處理圖片時發生錯誤，點數已退還，請稍後再試 🙏"
+MAINTENANCE_MESSAGE = "系統正在維護，這個功能暫時不能用，麻煩晚一點再試。"
+PROCESSING_FAILURE_MESSAGE = "處理的時候出了點問題，點數已經退還給您，麻煩晚一點再試。"
 
 
 class ReplicateImageFeature(BaseFeature):
@@ -21,7 +21,7 @@ class ReplicateImageFeature(BaseFeature):
     子類別需定義：
       - name（property）：功能名稱，同時作為扣點的 feature_type，也是
         config/settings.yml 裡對應的區段名稱
-      - trigger_command：觸發功能的訊息文字（例：「圖片彩色化」）
+      - trigger_command：觸發功能的訊息文字（例：「修復老照片」）
       - image_waiting_state：等待用戶上傳圖片的狀態名稱
       - handle_text / handle_image：功能各自的流程
 
@@ -46,7 +46,7 @@ class ReplicateImageFeature(BaseFeature):
         if is_global_command(message):
             return False
         # 別的功能的觸發指令不該被本功能的狀態吃掉（例如卡在「圖片編輯」
-        # 流程中途時輸入「圖片彩色化」，應該切過去而不是被當成編輯描述）
+        # 流程中途時輸入「修復老照片」，應該切過去而不是被當成編輯描述）
         if self._is_other_trigger_command(message):
             return False
         state = self.resolve_user_state(user_id, user_state)
@@ -96,7 +96,7 @@ class ReplicateImageFeature(BaseFeature):
         self.publisher.process_reply_message(
             reply_token,
             TextSendMessage(
-                text=f"❌ 點數不足！\n\n💎 目前點數：{member['points']} 點\n💰 需要點數：{self.required_points} 點\n\n請輸入「點數」查看詳細資訊"
+                text=f"點數不夠喔。\n\n您現在有 {member['points']} 點，這個功能需要 {self.required_points} 點。"
             ),
             user_id,
             event
@@ -131,25 +131,30 @@ class ReplicateImageFeature(BaseFeature):
         """發送 LINE 載入動畫；失敗不影響主流程"""
         self.line.start_loading_animation(user_id, self.loading_seconds)
 
-    def submit_billed_processing(self, user_id, event, deduct_description, run) -> bool:
-        """扣點跑 run()，成功就把結果圖推給用戶。
+    def build_result_message(self, output_url: str):
+        """結果要以什麼訊息型別推給用戶（預設圖片；產影片的功能覆寫它）"""
+        return ImageSendMessage(
+            original_content_url=output_url,
+            preview_image_url=output_url,
+        )
+
+    def submit_billed_processing(self, user_id, event, deduct_description, run,
+                                 build_message=None, on_finish=None) -> bool:
+        """扣點跑 run()，成功就把結果推給用戶。
 
         金流（扣點／失敗退點／滿載降級）由 BillingService 負責；這裡只補上
-        「圖片功能」專屬的部分：結果如何呈現、結束後清狀態。
+        這類功能專屬的部分：結果如何呈現、結束後清狀態。
 
         Args:
-            run: 無參數 callable，回傳結果圖片 URL（在背景執行緒中執行）
+            run: 無參數 callable，回傳結果的 URL（在背景執行緒中執行）
+            build_message: 覆寫結果訊息的組法（預設用 build_result_message）
+            on_finish: 覆寫收尾動作（預設清除用戶狀態）
         """
+        build_message = build_message or self.build_result_message
+
         def deliver(output_url):
-            # 推送結果圖片（載入動畫會自動停止）
-            self.publisher.process_push_message(
-                user_id,
-                ImageSendMessage(
-                    original_content_url=output_url,
-                    preview_image_url=output_url
-                ),
-                event
-            )
+            # 推送結果（載入動畫會自動停止）；回傳送達與否供 billing 決定退不退點
+            return self.publisher.process_push_message(user_id, build_message(output_url), event)
 
         return self.billing.submit(
             user_id=user_id,
@@ -159,7 +164,7 @@ class ReplicateImageFeature(BaseFeature):
             description=deduct_description,
             run=run,
             on_success=deliver,
-            on_finish=lambda: self.clear_user_state(user_id),
+            on_finish=on_finish or (lambda: self.clear_user_state(user_id)),
             failure_message=PROCESSING_FAILURE_MESSAGE,
         )
 

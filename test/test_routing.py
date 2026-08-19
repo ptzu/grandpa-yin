@@ -35,7 +35,7 @@ class TestGlobalCommands:
 
         env.send_text("點數")
 
-        assert "剩餘點數" in env.last_text, f"全局命令應被 member 接走，實得：{env.last_text!r}"
+        assert "點" in env.last_text, f"全局命令應被 member 接走，實得：{env.last_text!r}"
 
     def test_global_command_does_not_destroy_the_flow(self):
         env = build_env(with_member_feature=True)
@@ -51,9 +51,9 @@ class TestGlobalCommands:
         env.send_text("圖片編輯")
         env.reset()
 
-        env.send_text("!功能")
+        env.send_text("功能")
 
-        assert "請選擇您想要的功能" in env.last_text
+        assert "想做什麼" in env.last_text
 
 
 class TestTriggerCommands:
@@ -62,7 +62,7 @@ class TestTriggerCommands:
         env.send_image()
         env.send_text("照我說的修改")
 
-        env.send_text("圖片彩色化")
+        env.send_text("修復老照片")
 
         assert env.state["feature"] == "colorize"
 

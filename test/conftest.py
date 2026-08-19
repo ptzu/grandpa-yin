@@ -7,18 +7,21 @@ change to the wiring only edits `build_env()` below.
 """
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
 from src.core.settings import get_model_config
+from src.services.preview_store import LocalPreviewStore, set_public_base_url
 from src.services import billing as billing_module
 from src.services.billing import BillingService
 from src.features.context import FeatureContext
 from src.features.feature_registry import FeatureRegistry
 from src.features.menu_feature import MenuFeature
 from src.features.colorize_feature import ColorizeFeature
+from src.features.animate_feature import AnimateFeature
 from src.features.edit_feature import EditFeature
 from src.features.member_feature import MemberFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
@@ -30,6 +33,8 @@ IMAGE_BYTES = b"\xff\xd8fake-jpeg"
 # Read from the shipped config/settings.yml, so the suite asserts against whatever
 # is actually configured — and fails loudly if that file stops being valid.
 COLORIZE_CONFIG = get_model_config("colorize")
+ANIMATE_CONFIG = get_model_config("animate")
+ANIMATE_COST = ANIMATE_CONFIG.cost
 EDIT_CONFIG = get_model_config("edit")
 COLORIZE_COST = COLORIZE_CONFIG.cost
 EDIT_COST = EDIT_CONFIG.cost
@@ -67,6 +72,8 @@ class FakeStateManager:
 class FakePublisher:
     def __init__(self):
         self.messages = []
+        # 設 True 模擬 LINE 退件（例如網址不合規），用來驗證推送失敗會退點
+        self.push_fails = False
 
     def _record(self, kind, message):
         quick_reply = getattr(message, "quick_reply", None)
@@ -89,6 +96,10 @@ class FakePublisher:
 
     def process_push_message(self, user_id, message, event=None):
         self._record("push", message)
+        # 只讓「結果訊息」失敗，後續的道歉文字仍送得出去（貼近真實情況）
+        if self.push_fails and type(message).__name__ != "TextSendMessage":
+            return False
+        return True
 
     def reset(self):
         self.messages = []
@@ -142,6 +153,7 @@ class FakeStorage:
     def __init__(self):
         self.objects = {}
         self.deleted = []
+        self.signed = []
         self._counter = 0
 
     def is_configured(self):
@@ -159,6 +171,12 @@ class FakeStorage:
     def delete_image(self, key):
         self.objects.pop(key, None)
         self.deleted.append(key)
+
+    def create_signed_url(self, key, expires_in=86400):
+        if key not in self.objects:
+            raise KeyError(key)
+        self.signed.append((key, expires_in))
+        return f"https://storage.test/signed/{key}?token=fake"
 
 
 class FakeMemberService:
@@ -289,6 +307,7 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None):
     member_service = FakeMemberService(points)
     storage = FakeStorage()
     replicate = FakeReplicateClient(fail_with=replicate_fails_with)
+    preview_store = LocalPreviewStore(directory=tempfile.mkdtemp(prefix='gy-preview-test-'))
 
     ctx = FeatureContext(
         line=FakeLineClient(),
@@ -298,17 +317,21 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None):
         replicate=replicate,
         member_service=member_service,
         storage_service=storage,
+        preview_store=preview_store,
     )
 
     registry = FeatureRegistry(state_manager)
     registry.register(MenuFeature(ctx))
     registry.register(ColorizeFeature(ctx))
     registry.register(EditFeature(ctx))
+    registry.register(AnimateFeature(ctx))
     if with_member_feature:
         registry.register(MemberFeature(ctx))
     registry.register(PhotoIntentFeature(ctx))
 
-    return Env(registry, publisher, state_manager, member_service, storage, replicate)
+    env = Env(registry, publisher, state_manager, member_service, storage, replicate)
+    env.preview_store = preview_store
+    return env
 
 
 # ------------------------------------------------------------ fixtures
@@ -323,6 +346,8 @@ def offline_externals(monkeypatch):
     """
     monkeypatch.setattr(billing_module, "submit_image_task",
                         lambda task: (task(), True)[1])
+    # 公開網址是 ContextVar，會殘留到下一個測試——每次歸零，避免順序相依
+    set_public_base_url(None)
 
 
 @pytest.fixture
