@@ -132,11 +132,19 @@ schema 分兩層、各自管理：
 ## 管理腳本
 
 ```bash
-python scripts/add_member.py                 # 互動式新增會員／加點
+python scripts/add_points.py <名字> 50       # 為指定會員加點（加前會先確認）
+python scripts/add_member.py                 # 互動式新增會員
 python scripts/cleanup_user_states.py 24     # 清理超過 24 小時的舊對話狀態
 python scripts/cleanup_storage.py            # 試跑：列出 Storage 中的孤兒暫存圖
 python scripts/cleanup_storage.py --apply    # 實際刪除（建議掛 Railway cron 每日執行）
 python scripts/trace_user.py <名字>          # 追查某會員的點數異動（排查用）
+```
+
+加點對象可以用**顯示名稱**（模糊查，同名會列清單讓你挑）或 **LINE userId**（精準）指定：
+
+```bash
+python scripts/add_points.py 王小明 50 --reason 朋友介紹   # 說明會出現在用戶的「歷史」
+python scripts/add_points.py U1a2b3c... 50 --yes          # 跳過確認；此模式只吃 userId
 ```
 
 ## 專案結構
@@ -165,6 +173,7 @@ src/                      ── 核心程式碼
     replicate_client.py   Replicate 模型呼叫與輸出解析
     user_state_manager.py 對話狀態機（grandpa_yin.bot_sessions）
     member_service.py     會員服務層（點數、交易）
+    member_directory.py   用名字／LINE userId 找會員（管理腳本用，唯讀）
     storage_service.py    Supabase Storage（圖片暫存）
     account_backend.py    AccountBackend port：standalone / platform 雙模式
   models/                 SQLAlchemy 模型（public.* 共用層 + grandpa_yin.* 產品層）

@@ -45,6 +45,10 @@ class AccountBackend(ABC):
         """{subject_id: line_uid} for the given subject ids (reverse lookup)."""
 
     # --- ledger (per-mode table) -------------------------------------------
+    # The model backing this mode's ledger. Exposed so read-only tooling can
+    # query it without knowing which mode is active.
+    ledger_model = None
+
     @abstractmethod
     def _new_ledger_row(self, subject_id, *, amount, service, balance_after, description):
         """Build (not persist) a ledger row for this mode's ledger table."""
@@ -80,6 +84,8 @@ class AccountBackend(ABC):
 
 class PlatformAccountBackend(AccountBackend):
     """Backed by Altide's shared public.* tables."""
+
+    ledger_model = Transaction
 
     def resolve(self, session, line_uid, *, for_update=False):
         identity = (
@@ -144,6 +150,8 @@ class PlatformAccountBackend(AccountBackend):
 
 class StandaloneAccountBackend(AccountBackend):
     """Backed by grandpa_yin-owned subjects / wallet_transactions. No Altide."""
+
+    ledger_model = WalletTransaction
 
     def resolve(self, session, line_uid, *, for_update=False):
         q = session.query(Subject).filter_by(provider=LINE_PROVIDER, provider_uid=line_uid)
