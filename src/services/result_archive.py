@@ -72,6 +72,23 @@ class ResultArchive:
             logger.exception(f"成品保存失敗，改用模型的暫存網址: {output_url[:120]}")
             return None
 
+    def fetch(self, url: str):
+        """把成品抓回記憶體，供「拿剛做好的成品繼續做下一件事」使用。
+
+        走跟 archive() 同一條下載路徑（含大小上限），所以保存進 results/ 的
+        自家 signed URL 與模型端的暫存網址都吃得下。抓不到一律回 None——
+        呼叫端要能在成品過期時好好告訴用戶，而不是拋例外。
+        """
+        if not url:
+            return None
+
+        try:
+            data, _ = self._download(url)
+            return data
+        except Exception:
+            logger.exception(f"取回成品失敗: {url[:120]}")
+            return None
+
     def store_bytes(self, data: bytes, extension: str = "jpg",
                     content_type: str = "image/jpeg"):
         """保存手上已有的 bytes（影片訊息的縮圖走這條）；失敗回傳 None"""

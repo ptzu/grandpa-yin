@@ -32,6 +32,10 @@ class ReplicateImageFeature(BaseFeature):
     trigger_command = None
     image_waiting_state = None
 
+    # 成品能不能當成下一個功能的輸入。輸出影片的功能要設 False：影片餵不回
+    # 圖片模型，給了「再修一下」的按鈕只會讓用戶按了撲空。
+    result_can_be_reused = True
+
     def __init__(self, ctx):
         super().__init__(ctx)
         self.config = get_model_config(self.name)
@@ -151,12 +155,39 @@ class ReplicateImageFeature(BaseFeature):
             on_finish: 覆寫收尾動作（預設清除用戶狀態）
         """
         build_message = build_message or self.build_result_message
+        finish_default = on_finish or (lambda: self.clear_user_state(user_id))
+        followup = self._followup_feature(event)
+        # deliver 與收尾是 billing 分開呼叫的兩個 callback，用它把成品網址帶過去
+        delivered = {}
 
         def deliver(output_url):
             # 推送結果（載入動畫會自動停止）；回傳送達與否供 billing 決定退不退點
-            return self.publisher.process_push_message(
-                user_id, build_message(self.archive_result(output_url)), event
-            )
+            result_url = self.archive_result(output_url)
+            messages = [build_message(result_url)]
+
+            offer = self._build_followup_offer(followup, user_id)
+            if offer:
+                messages.append(offer)
+
+            if self.publisher.process_push_message(user_id, messages, event) is False:
+                return False
+
+            if offer:
+                delivered["result_url"] = result_url
+            return True
+
+        def finish():
+            """成功交付且有後續選項時進入 follow-up 狀態，否則照原本的方式收尾"""
+            result_url = delivered.get("result_url")
+            if not result_url:
+                finish_default()
+                return
+            try:
+                followup.remember(user_id, result_url)
+            except Exception:
+                # 記不起來只是少了「下一步」，不能讓用戶卡在 processing 狀態裡
+                logger.exception(f"寫入 follow-up 狀態失敗: {user_id}")
+                finish_default()
 
         return self.billing.submit(
             user_id=user_id,
@@ -166,9 +197,33 @@ class ReplicateImageFeature(BaseFeature):
             description=deduct_description,
             run=run,
             on_success=deliver,
-            on_finish=on_finish or (lambda: self.clear_user_state(user_id)),
+            on_finish=finish,
             failure_message=PROCESSING_FAILURE_MESSAGE,
         )
+
+    def _followup_feature(self, event: dict):
+        """負責「還要再做點什麼嗎」的功能；不適用時回 None。
+
+        三種不適用：本功能的成品不能再當輸入（影片）、沒有成品保存所以待會
+        取不回成品、以及群組聊天——follow-up 狀態掛在個人身上，群組裡誰接著
+        講話都會踩到它。
+        """
+        if not self.result_can_be_reused or not self.result_archive or not self.registry:
+            return None
+        if event and self.is_group_chat(event):
+            return None
+        return self.registry.get_feature_by_name("followup")
+
+    @staticmethod
+    def _build_followup_offer(followup, user_id: str):
+        """組後續選項訊息；失敗就當作沒有——成品送達遠比多一排按鈕重要"""
+        if not followup:
+            return None
+        try:
+            return followup.build_offer(user_id)
+        except Exception:
+            logger.exception(f"組後續選項失敗，只推成品: {user_id}")
+            return None
 
     def archive_result(self, output_url: str) -> str:
         """把成品轉存到自家 Storage，回傳能撐 30 天的網址。

@@ -59,7 +59,7 @@ class TestPhotoFirstFlow:
             {"amount": EDIT_COST, "feature": "edit", "description": "圖片編輯：背景換成海灘"}
         ]
         assert env.pushed_image(), "應推送結果圖片"
-        assert env.state is None, "流程結束後狀態要清空"
+        assert env.state_is("followup", "offered"), "交付後接上「還要再做點什麼嗎」"
         assert env.stashed_objects == {}, "暫存照片要刪除"
         assert env.archived_objects, "成品要留著，用戶 30 天內回頭還看得到"
 
@@ -78,7 +78,7 @@ class TestColorizeHandoff:
         ]
         assert env.pushed_image()
         assert env.stashed_objects == {}
-        assert env.state is None
+        assert env.state_is("followup", "offered")
 
 
 class TestCancel:
