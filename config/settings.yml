@@ -59,8 +59,10 @@ features:
       image_is_list: false
       prompt_field: prompt
       default_prompt: >
-        The people in this vintage portrait smile warmly and raise one hand to
-        wave at the camera in a friendly greeting. Natural, gentle human movement.
+        The people in this vintage portrait smile warmly and give a small,
+        gentle wave to the camera in a friendly greeting — the hand stays low,
+        near waist level, moving only slightly from the wrist. Do not raise or
+        lift the arms. Natural, gentle, minimal human movement.
         Keep every face perfectly stable and identical throughout — no morphing,
         no distortion, no change of identity or age. They stay standing in the
         same positions; the background and objects remain unchanged.

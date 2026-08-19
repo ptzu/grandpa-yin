@@ -31,6 +31,7 @@ from src.features.photo_intent_feature import PhotoIntentFeature
 from src.models.database import init_database, get_session
 from src.services.member_service import MemberService
 from src.services.storage_service import StorageService
+from src.services.result_archive import ResultArchive
 from src.services.ecpay_client import ECPayClient
 from src.services.line_client import verify_id_token
 from src.services.payment_service import (
@@ -150,6 +151,7 @@ def init():
         member_service=member_service,
         storage_service=storage_service,
         preview_store=preview_store,
+        result_archive=ResultArchive(storage_service),
         payment_service=payment_service,
     )
 

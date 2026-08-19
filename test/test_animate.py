@@ -7,6 +7,7 @@ import pytest
 
 from conftest import ANIMATE_COST, USER, build_env
 from src.services.preview_store import set_public_base_url
+from src.services.result_archive import RESULT_PREFIX, RETENTION_DAYS
 
 CONFIRM_BUTTONS = ["✅ 確定開始", "❌ 取消"]
 
@@ -78,6 +79,20 @@ class TestThumbnailLifecycle:
         assert env.storage.signed, "應該為縮圖產生 signed URL"
         key, expires = env.storage.signed[0]
         assert expires >= 3600, "縮圖網址要撐得夠久讓 LINE 來抓"
+
+    def test_thumbnail_lasts_as_long_as_the_video(self, env):
+        """影片留 30 天、封面 24 小時就失效 = 用戶回頭看到一則沒有預覽圖的訊息"""
+        start_and_send_photo(env)
+        env.send_text("確定開始")
+
+        pushed = env.pushed_media()
+        assert pushed["type"] == "VideoSendMessage"
+        assert pushed["preview_url"], "影片訊息一定要有縮圖，否則 LINE 退件"
+
+        thumbnail_ttls = [ttl for key, ttl in env.storage.signed
+                          if key.startswith(f"{RESULT_PREFIX}/")]
+        assert thumbnail_ttls, "縮圖要跟影片一起存進 results/"
+        assert all(ttl == RETENTION_DAYS * 86400 for ttl in thumbnail_ttls)
 
     def test_thumbnail_survives_completion(self, env):
         start_and_send_photo(env)
