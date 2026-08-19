@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 # .env file, so this is a harmless no-op and platform Variables are used as-is.
 load_dotenv()
 
-from flask import Flask, request, abort, Response
+from flask import Flask, request, abort, Response, render_template
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from src.core.app_logger import get_logger, request_id_var
@@ -28,9 +28,14 @@ from src.features.animate_feature import AnimateFeature
 from src.features.edit_feature import EditFeature
 from src.features.member_feature import MemberFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
-from src.models.database import init_database
+from src.models.database import init_database, get_session
 from src.services.member_service import MemberService
 from src.services.storage_service import StorageService
+from src.services.ecpay_client import ECPayClient
+from src.services.line_client import verify_id_token
+from src.services.payment_service import (
+    ECPAY_ACK, ECPAY_REJECT, PaymentError, PaymentService,
+)
 
 logger = get_logger("app")
 
@@ -43,6 +48,7 @@ user_state_manager = None
 feature_registry = None
 member_service = None
 preview_store = None
+payment_service = None
 _initialized = False
 
 # 已處理事件的記憶體快取，防止 LINE webhook 重送造成重複處理／重複扣點。
@@ -68,7 +74,7 @@ def _is_duplicate_event(event_id):
 
 def init():
     """初始化所有 LINE Bot 相關組件"""
-    global app, line_bot_api, handler, publisher, user_state_manager, feature_registry, member_service, preview_store, _initialized
+    global app, line_bot_api, handler, publisher, user_state_manager, feature_registry, member_service, preview_store, payment_service, _initialized
     
     # 如果已經初始化過，直接返回
     if _initialized:
@@ -126,7 +132,15 @@ def init():
     # 7. 影片縮圖的本地降級（Storage 未設定時由本服務自己供圖）
     preview_store = LocalPreviewStore()
 
-    # 8. 組裝功能的依賴（新增依賴只要加在 FeatureContext，不必動每個 feature 的建構子）
+    # 8. 儲值（沒設定 ECPAY_* 或設定檔沒有 payments 區段時自動停用）
+    ecpay = ECPayClient.from_env()
+    payment_service = PaymentService(ecpay=ecpay) if member_service else None
+    if payment_service and payment_service.enabled:
+        logger.info(f"儲值已啟用：{len(payment_service.packages())} 種點數包")
+    else:
+        logger.info("儲值未啟用")
+
+    # 9. 組裝功能的依賴（新增依賴只要加在 FeatureContext，不必動每個 feature 的建構子）
     ctx = FeatureContext(
         line=line_client,
         publisher=publisher,
@@ -136,9 +150,10 @@ def init():
         member_service=member_service,
         storage_service=storage_service,
         preview_store=preview_store,
+        payment_service=payment_service,
     )
 
-    # 9. 註冊所有功能
+    # 10. 註冊所有功能
     feature_registry = FeatureRegistry(user_state_manager)
     feature_registry.register(MenuFeature(ctx))
     feature_registry.register(ColorizeFeature(ctx))
@@ -290,6 +305,111 @@ def preview(token):
         mimetype="image/jpeg",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 儲值：建單 → 綠界 → 回調入帳
+#
+# 發點只發生在 /pay/ecpay/callback（綠界的伺服器對伺服器通知，且驗過簽章）。
+# /pay/done 是使用者的瀏覽器導回頁，任何人都能開，因此只顯示文字、不碰點數。
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _payments_ready():
+    """儲值是否可服務；順便補做延遲初始化"""
+    if not _initialized:
+        try:
+            init()
+        except Exception:
+            logger.exception("初始化失敗")
+            return False
+    return payment_service is not None and payment_service.enabled
+
+
+@app.route("/pay", methods=["GET"])
+def pay_page():
+    """LIFF 付款頁：選點數包 → 送去綠界。
+
+    需要 LIFF_ID 才能驗證開頁的人是誰，沒設就等於還沒開通，回 503 而不是
+    給一個按了會壞掉的頁面。
+    """
+    if not _payments_ready():
+        abort(503)
+
+    liff_id = os.getenv("LIFF_ID")
+    if not liff_id:
+        logger.warning("LIFF_ID 未設定，付款頁無法使用")
+        abort(503)
+
+    return render_template("pay.html",
+                           packages=payment_service.packages(),
+                           liff_id=liff_id)
+
+
+@app.route("/pay/checkout", methods=["POST"])
+def pay_checkout():
+    """LIFF 付款頁呼叫：建立訂單，回傳要 POST 給綠界的表單欄位。
+
+    身分一律以 LINE 驗證過的 ID token 為準——付款頁在瀏覽器裡，
+    自稱的 userId 等於讓任何人替別人建單。
+    """
+    if not _payments_ready():
+        abort(503)
+
+    data = request.get_json(silent=True) or {}
+    user_id = verify_id_token(data.get("id_token"), os.getenv("LINE_LOGIN_CHANNEL_ID"))
+    if not user_id:
+        abort(401)
+
+    base = _public_base_url()
+    try:
+        with get_session() as session:
+            result = payment_service.create_order(
+                session,
+                user_id,
+                data.get("package_id"),
+                return_url=f"{base}/pay/ecpay/callback",
+                order_result_url=f"{base}/pay/done",
+            )
+            session.commit()
+            return {"action": result["action"], "params": result["params"]}
+    except PaymentError as e:
+        return {"error": str(e)}, 400
+    except Exception:
+        logger.exception("建立儲值訂單失敗")
+        abort(500)
+
+
+@app.route("/pay/ecpay/callback", methods=["POST"])
+def pay_ecpay_callback():
+    """綠界的付款結果通知（ReturnURL）——唯一會發點數的地方。
+
+    綠界收不到 "1|OK" 就會持續重送，所以「已經處理過」也要回 1|OK，
+    否則同一筆會被無限重試。真正的重複發點防護在 PaymentService。
+    """
+    if not _payments_ready():
+        abort(503)
+
+    payload = request.form.to_dict()
+    try:
+        with get_session() as session:
+            result = payment_service.handle_callback(session, payload)
+    except Exception:
+        logger.exception("處理綠界回調失敗")
+        # 不回 1|OK，讓綠界重送——這種失敗多半是暫時性的（DB 斷線）
+        return ECPAY_REJECT
+
+    return ECPAY_ACK if result.ok else ECPAY_REJECT
+
+
+@app.route("/pay/done", methods=["GET", "POST"])
+def pay_done():
+    """付款後使用者被導回的頁面。
+
+    刻意不顯示餘額也不查訂單：入帳由回調決定，兩者可能差幾秒，
+    這裡若說「已加值」而回調還沒到，長輩會以為錢丟了。
+    """
+    return render_template("pay_done.html")
+
 
 def handle_text_message(event):
     """處理文字訊息，委託給 FeatureRegistry"""

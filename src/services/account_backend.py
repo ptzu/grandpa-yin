@@ -44,6 +44,11 @@ class AccountBackend(ABC):
     def provider_uid_map(self, session, subject_ids):
         """{subject_id: line_uid} for the given subject ids (reverse lookup)."""
 
+    @abstractmethod
+    def get_by_id(self, session, subject_id, *, for_update=False):
+        """subject id -> subject, or None. For callers holding an id rather
+        than a LINE UID (payment orders, admin tooling)."""
+
     # --- ledger (per-mode table) -------------------------------------------
     # The model backing this mode's ledger. Exposed so read-only tooling can
     # query it without knowing which mode is active.
@@ -125,6 +130,12 @@ class PlatformAccountBackend(AccountBackend):
         )
         return {account_id: provider_uid for account_id, provider_uid in rows}
 
+    def get_by_id(self, session, subject_id, *, for_update=False):
+        q = session.query(Account).filter_by(id=subject_id)
+        if for_update:
+            q = q.with_for_update()
+        return q.first()
+
     def _new_ledger_row(self, subject_id, *, amount, service, balance_after, description):
         return Transaction(
             account_id=subject_id, amount=amount, service=service,
@@ -180,6 +191,12 @@ class StandaloneAccountBackend(AccountBackend):
             .all()
         )
         return {subject_id: provider_uid for subject_id, provider_uid in rows}
+
+    def get_by_id(self, session, subject_id, *, for_update=False):
+        q = session.query(Subject).filter_by(id=subject_id)
+        if for_update:
+            q = q.with_for_update()
+        return q.first()
 
     def _new_ledger_row(self, subject_id, *, amount, service, balance_after, description):
         return WalletTransaction(

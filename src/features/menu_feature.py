@@ -42,8 +42,17 @@ class MenuFeature(BaseFeature):
             QuickReplyButton(action=MessageAction(label="🎬 照片動起來", text="照片動起來")),
             QuickReplyButton(action=MessageAction(label="🎨 圖片編輯", text="圖片編輯")),
             QuickReplyButton(action=MessageAction(label="💎 我的點數", text="點數")),
-            QuickReplyButton(action=MessageAction(label="❓ 使用說明", text="使用說明")),
         ]
+
+        # 只有金流與 LIFF 都備妥時才給加值入口
+        if self.payment_service and self.payment_service.topup_link():
+            quick_reply_buttons.append(
+                QuickReplyButton(action=MessageAction(label="➕ 加購點數", text="儲值"))
+            )
+
+        quick_reply_buttons.append(
+            QuickReplyButton(action=MessageAction(label="❓ 使用說明", text="使用說明"))
+        )
         
         quick_reply = QuickReply(items=quick_reply_buttons)
         

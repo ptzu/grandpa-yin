@@ -28,6 +28,8 @@ pytest
 | `test_routing.py` | 路由層契約：註冊順序即優先序、`photo_intent` catch-all 必須最後、全局命令可在流程中途穿透且不破壞流程、其他功能的觸發指令不被當成輸入吃掉 |
 | `test_billing.py` | 金流：扣點後才執行、失敗退點並清狀態、扣不到點就不動用外部資源、執行緒池滿載時降級 |
 | `test_cleanup_storage.py` | 清理腳本的時間戳解析（含 Supabase 的超微秒精度格式） |
+| `test_payment.py` | 儲值：CheckMacValue 驗簽、點數包設定驗證、建單快照定價，以及回調的「只發一次點」——重送、竄改金額、偽造簽章、付款失敗各走一條 |
+| `test_topup_command.py` | 「儲值」指令與入口顯示：金流或 LIFF 少一半就完全不提儲值 |
 
 同一套測試由 GitHub Actions 在每次 push / PR 時於 Python 3.9 與 3.12 上執行（`.github/workflows/ci.yml`）。
 
@@ -173,6 +175,27 @@ python scripts/trace_user.py 某個線上真實用戶的名字
 
 - 回「找不到」→ 正確，連的是空的測試庫。
 - 查得到真實用戶資料 → **危險！`DATABASE_URL` 指到線上了，立刻停下修正。**
+
+---
+
+## 八之二、測儲值（不必真的付錢）
+
+綠界有測試環境，可以在拿到正式商店帳號前跑完整條路。四個 `ECPAY_*` 加 `LIFF_ID`、
+`LINE_LOGIN_CHANNEL_ID` 填測試值即可（測試站網址與測試商店代號以綠界官方文件為準）。
+
+**上線前一定要做的一件事**：用綠界測試環境實際跑一筆，確認 `CheckMacValue` 對得上。
+那套編碼規則（.NET UrlEncode 的字元替換）容易有細微出入，本地測試只驗到「自我一致
+且擋得下竄改」，驗不到「跟綠界算出來的一樣」。對不上的症狀是每一筆都失敗，很明顯。
+
+不想開瀏覽器時，可以直接對 `/pay/ecpay/callback` 送一筆自己簽好的回調：
+
+```python
+from src.services.ecpay_client import check_mac_value
+payload = {"MerchantTradeNo": "<訂單編號>", "RtnCode": "1", "TradeAmt": "250", ...}
+payload["CheckMacValue"] = check_mac_value(payload, HASH_KEY, HASH_IV)
+```
+
+送兩次，餘額只會增加一次——這是這條路徑最該驗的行為。
 
 ---
 

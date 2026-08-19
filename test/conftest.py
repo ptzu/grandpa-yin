@@ -25,6 +25,8 @@ from src.features.animate_feature import AnimateFeature
 from src.features.edit_feature import EditFeature
 from src.features.member_feature import MemberFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
+from src.core.settings import _parse_payments
+from src.services.payment_service import PaymentService
 
 USER = "U-test-user"
 FAKE_OUTPUT_URL = "https://example.test/output.jpg"
@@ -297,7 +299,37 @@ class Env:
         return bool(current and current["feature"] == feature and current["state"] == state)
 
 
-def build_env(points=100, with_member_feature=False, replicate_fails_with=None):
+TEST_PACKAGES = {
+    "provider": "ecpay",
+    "packages": [
+        {"id": "s", "points": 100, "price_twd": 100},
+        {"id": "m", "points": 300, "price_twd": 250, "label": "300 點（較划算）"},
+    ],
+}
+
+
+class FakeGateway:
+    """Stands in for ECPayClient; top-up tests never reach the gateway."""
+
+    api_url = "https://gateway.test/checkout"
+
+    def checkout_params(self, **kwargs):
+        return {"MerchantTradeNo": kwargs["merchant_trade_no"]}
+
+    def verify(self, payload):
+        return True
+
+
+def build_payment_service():
+    """A real PaymentService with faked edges. Callers still need LIFF_ID set
+    for `topup_link()` to return anything — that is the behaviour under test."""
+    settings = _parse_payments(TEST_PACKAGES)
+    return PaymentService(ecpay=FakeGateway(), backend=object(),
+                          settings_provider=lambda: settings)
+
+
+def build_env(points=100, with_member_feature=False, replicate_fails_with=None,
+              with_payments=False):
     """Assemble a registry the same way app.py does (photo_intent registered last).
 
     BillingService is the real one — only the systems at the edges are faked.
@@ -318,6 +350,7 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None):
         member_service=member_service,
         storage_service=storage,
         preview_store=preview_store,
+        payment_service=build_payment_service() if with_payments else None,
     )
 
     registry = FeatureRegistry(state_manager)

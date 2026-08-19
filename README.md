@@ -174,9 +174,12 @@ src/                      ── 核心程式碼
     user_state_manager.py 對話狀態機（grandpa_yin.bot_sessions）
     member_service.py     會員服務層（點數、交易）
     member_directory.py   用名字／LINE userId 找會員（管理腳本用，唯讀）
+    payment_service.py    儲值：建單 → 綠界回調 → 只發一次點
+    ecpay_client.py       綠界 CheckMacValue 產生與驗證（不連網）
     storage_service.py    Supabase Storage（圖片暫存）
     account_backend.py    AccountBackend port：standalone / platform 雙模式
   models/                 SQLAlchemy 模型（public.* 共用層 + grandpa_yin.* 產品層）
+  templates/              付款頁與付款完成頁（Flask 樣板，只有儲值流程用到）
 
 config/settings.yml       模型、點數、贈點、模型輸入欄位對應（部署前自動驗證）
 start_local_server.sh     本地一鍵啟動（Flask + ngrok + 自動設定 webhook）
@@ -211,7 +214,26 @@ features:
 
 members:
   welcome_points: 50            # 新會員贈點，0 表示不送
+
+payments:                       # 整段拿掉 = 關閉儲值
+  provider: ecpay
+  packages:
+    - {id: s, points: 100, price_twd: 100, label: 100 點}
 ```
+
+儲值另外需要四個環境變數（`ECPAY_MERCHANT_ID` / `ECPAY_HASH_KEY` / `ECPAY_HASH_IV` /
+`ECPAY_API_URL`）與 `LINE_LOGIN_CHANNEL_ID`，見 `.env.example`。**沒設齊就自動停用**，
+服務照常運作，只是沒有付款入口——密鑰不放 `settings.yml`，因為那個檔案在 git 裡。
+
+點數只在 `/pay/ecpay/callback`（綠界的伺服器通知，且驗過 CheckMacValue）發放；
+使用者付完款導回的 `/pay/done` 只顯示文字，不碰點數。同一筆訂單重複回調不會重複發點，
+靠的是 `payment_orders.merchant_trade_no` 的唯一鍵加上 `credited_at` 的列鎖，而不是記憶體。
+
+用戶端的流程是：輸入「儲值」或從「功能」選單點「➕ 加購點數」→ 收到付款頁連結 →
+在 LIFF 頁選方案 → 綠界付款 → 幾秒後點數入帳，「歷史」看得到訂單編號。
+
+**金流與 LIFF 少了任何一半，bot 就完全不提儲值**：選單不出現加購按鈕、「點數」不提示、
+輸入「儲值」會明講「還沒開放」。給長輩一個按了沒反應的連結，比不提還糟。
 
 換模型時**光改 `model` 不夠**：不同模型的欄位名稱不一樣（`nano-banana` 的圖片欄位叫 `image_input` 且吃陣列，`restore-image` 叫 `input_image` 吃單值），`input` 區段要一起調。檔案裡的註解附了幾個常用模型的對應可直接抄。
 

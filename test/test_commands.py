@@ -9,7 +9,7 @@ from conftest import build_env
 from src.features.feature_registry import GLOBAL_COMMANDS
 
 TRIGGERS = ["修復老照片", "圖片編輯", "照片動起來"]
-GLOBALS = ["點數", "歷史", "會員", "功能", "使用說明"]
+GLOBALS = ["點數", "歷史", "會員", "儲值", "功能", "使用說明"]
 
 
 class TestCanonicalSet:

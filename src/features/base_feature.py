@@ -24,6 +24,7 @@ class BaseFeature(ABC):
         self.member_service = ctx.member_service
         self.storage_service = ctx.storage_service
         self.preview_store = ctx.preview_store
+        self.payment_service = ctx.payment_service
         # Set by FeatureRegistry.register(); lets a feature hand off to a sibling
         # (photo_intent -> colorize/edit) without app.py wiring them to each other.
         self.registry = None

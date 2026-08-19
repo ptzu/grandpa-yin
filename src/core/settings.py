@@ -16,6 +16,7 @@ a wrong model or a wrong price is worse than a failed deploy. `main()` is wired
 into CI and Railway's preDeployCommand so it never gets that far.
 """
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -218,11 +219,122 @@ def _parse_members(section) -> MemberSettings:
 
 
 @dataclass(frozen=True)
+class PointPackage:
+    """One thing a user can buy: a fixed number of points for a fixed price."""
+
+    id: str
+    points: int
+    price_twd: int
+    label: str
+
+
+@dataclass(frozen=True)
+class PaymentSettings:
+    """Top-up settings. Absent from the file means top-up is simply off, which
+    is the state every existing deployment is in — so it must stay valid."""
+
+    provider: str
+    packages: tuple
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.provider and self.packages)
+
+    def package(self, package_id):
+        """The package with this id, or None. Callers must treat None as
+        "unknown package" — never fall back to a default, or a tampered id
+        would pick the cheapest price with the largest point grant."""
+        for pkg in self.packages:
+            if pkg.id == package_id:
+                return pkg
+        return None
+
+
+SUPPORTED_PROVIDERS = ("ecpay",)
+
+# Package ids end up inside the payment provider's order number, which ECPay
+# limits to 20 alphanumeric characters — so keep them short and boring.
+_PACKAGE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,16}$")
+
+
+def _parse_package(index, raw) -> PointPackage:
+    if not isinstance(raw, dict):
+        raise SettingsError(
+            f"payments.packages 第 {index} 項必須是一組設定（縮排的 key: value），"
+            f"實際是 {type(raw).__name__}"
+        )
+
+    package_id = raw.get("id")
+    if not isinstance(package_id, str) or not _PACKAGE_ID_PATTERN.match(package_id):
+        raise SettingsError(
+            f"payments.packages 第 {index} 項的 id 必須是 1～16 個英數字、底線或減號，"
+            f"實際是 {package_id!r}"
+        )
+
+    def positive_int(key):
+        value = raw.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise SettingsError(
+                f"payments.packages 的 {package_id} 的 {key} 必須是正整數，實際是 {value!r}"
+            )
+        return value
+
+    points = positive_int("points")
+    price_twd = positive_int("price_twd")
+
+    label = raw.get("label") or f"{points} 點"
+    if not isinstance(label, str):
+        raise SettingsError(
+            f"payments.packages 的 {package_id} 的 label 必須是文字，實際是 {label!r}"
+        )
+
+    return PointPackage(id=package_id, points=points, price_twd=price_twd, label=label)
+
+
+def _parse_payments(section) -> PaymentSettings:
+    """No payments section = top-up disabled. A half-filled one is an error:
+    silently disabling a payment feature because of a typo is worse than
+    refusing to boot."""
+    if section is None:
+        return PaymentSettings(provider="", packages=())
+
+    if not isinstance(section, dict):
+        raise SettingsError(
+            f"設定檔的 payments 必須是一組設定（縮排的 key: value），"
+            f"實際是 {type(section).__name__}"
+        )
+
+    provider = section.get("provider")
+    if provider not in SUPPORTED_PROVIDERS:
+        raise SettingsError(
+            f"payments.provider 目前只支援 {list(SUPPORTED_PROVIDERS)}，實際是 {provider!r}"
+        )
+
+    packages = section.get("packages")
+    if not isinstance(packages, list) or not packages:
+        raise SettingsError(
+            "payments.packages 必須是至少一項的清單（每項要有 id / points / price_twd）"
+        )
+
+    parsed = tuple(_parse_package(i, raw) for i, raw in enumerate(packages, start=1))
+
+    seen = [p.id for p in parsed]
+    duplicates = {i for i in seen if seen.count(i) > 1}
+    if duplicates:
+        raise SettingsError(
+            f"payments.packages 的 id 不可重複，重複的是：{sorted(duplicates)}"
+        )
+
+    return PaymentSettings(provider=provider, packages=parsed)
+
+
+@dataclass(frozen=True)
 class Settings:
     """The whole settings file, validated."""
 
     features: dict
     members: MemberSettings
+    payments: PaymentSettings
 
 
 def load_settings(path: str = None) -> Settings:
@@ -254,13 +366,16 @@ def load_settings(path: str = None) -> Settings:
         for feature, section in features_section.items()
     }
     members = _parse_members(raw.get("members"))
+    payments = _parse_payments(raw.get("payments"))
 
     logger.info(
         "設定已載入："
         + "、".join(f"{name}={c.model}（{c.cost} 點）" for name, c in features.items())
         + f"、新會員贈點 {members.welcome_points}"
+        + (f"、儲值 {payments.provider}（{len(payments.packages)} 種點數包）"
+           if payments.enabled else "、儲值未啟用")
     )
-    return Settings(features=features, members=members)
+    return Settings(features=features, members=members, payments=payments)
 
 
 _cache = None
@@ -286,6 +401,11 @@ def get_model_config(feature: str) -> ModelConfig:
 def get_member_settings() -> MemberSettings:
     """Member-wide settings (signup bonus)."""
     return _settings().members
+
+
+def get_payment_settings() -> PaymentSettings:
+    """Top-up settings; `.enabled` is False when the file has no payments section."""
+    return _settings().payments
 
 
 def reset_cache():
@@ -332,6 +452,16 @@ def main():
     bonus = settings.members.welcome_points
     print("  members")
     print(f"    新會員贈點：{bonus} 點" + ("　（0＝不送）" if bonus == 0 else ""))
+    print()
+
+    payments = settings.payments
+    print("  payments")
+    if not payments.enabled:
+        print("    儲值未啟用（設定檔沒有 payments 區段）")
+    else:
+        print(f"    金流：{payments.provider}")
+        for pkg in payments.packages:
+            print(f"    {pkg.id:<8} {pkg.points:>6} 點　NT${pkg.price_twd:<6} {pkg.label}")
     print()
     return 0
 
