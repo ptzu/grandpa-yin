@@ -29,6 +29,7 @@
 - **模型、點數、贈點都在 `config/settings.yml`**，換模型／調價不必改程式碼（見下方）。
 - 新用戶加好友自動建立會員並贈送 `members.welcome_points`（預設 50）點。
 - 圖片以背景非同步處理，不阻塞使用者；多用戶對話狀態持久化於 `grandpa_yin.bot_sessions`。
+- **成品保留 30 天**：推送前轉存進自家 Storage，用戶往上滑對話紀錄重看都還在（模型端的網址約一小時就失效）。
 - **主要入口是「直接傳照片」**：長輩的心智模型是「處理這張照片」而不是「進入某個功能」。傳統的「先打指令再傳圖」路徑同時保留。
 - 圖片編輯全程可用 Quick Reply 完成（免打字），且**確認之後才扣點**，在那之前可隨時取消或換圖。
 
@@ -171,6 +172,7 @@ src/                      ── 核心程式碼
     message_publisher.py  LINE 發訊側（reply / push、重試退避）
     billing.py            計費背景任務：扣點 → 執行 → 失敗退點 → 滿載降級
     replicate_client.py   Replicate 模型呼叫與輸出解析
+    result_archive.py     成品保存：轉存成品並換成 30 天有效的網址
     user_state_manager.py 對話狀態機（grandpa_yin.bot_sessions）
     member_service.py     會員服務層（點數、交易）
     member_directory.py   用名字／LINE userId 找會員（管理腳本用，唯讀）

@@ -154,7 +154,9 @@ class ReplicateImageFeature(BaseFeature):
 
         def deliver(output_url):
             # 推送結果（載入動畫會自動停止）；回傳送達與否供 billing 決定退不退點
-            return self.publisher.process_push_message(user_id, build_message(output_url), event)
+            return self.publisher.process_push_message(
+                user_id, build_message(self.archive_result(output_url)), event
+            )
 
         return self.billing.submit(
             user_id=user_id,
@@ -167,6 +169,16 @@ class ReplicateImageFeature(BaseFeature):
             on_finish=on_finish or (lambda: self.clear_user_state(user_id)),
             failure_message=PROCESSING_FAILURE_MESSAGE,
         )
+
+    def archive_result(self, output_url: str) -> str:
+        """把成品轉存到自家 Storage，回傳能撐 30 天的網址。
+
+        模型給的網址約一小時後就失效，用戶往上滑重看會破圖。保存失敗時原樣
+        回傳模型的網址：留久一點是加分項，送達才是這次付費買到的東西。
+        """
+        if not self.result_archive:
+            return output_url
+        return self.result_archive.archive(output_url) or output_url
 
     def run_replicate(self, input_dict: dict) -> str:
         """呼叫本功能的 Replicate 模型並取得結果圖片 URL"""

@@ -36,5 +36,7 @@ class FeatureContext:
     storage_service: Optional[object] = None
     # Serves thumbnails from the app itself when Storage isn't configured
     preview_store: Optional[object] = None
+    # Keeps finished results reachable for 30 days; None = deliver the model URL as-is
+    result_archive: Optional[object] = None
     # Top-up; None (or disabled) means the bot simply doesn't offer it
     payment_service: Optional[object] = None

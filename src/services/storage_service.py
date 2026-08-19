@@ -14,8 +14,12 @@ DELETE_BATCH_SIZE = 100
 class StorageService:
     """Supabase Storage 客戶端（走 Storage REST API，不引入 supabase-py 依賴）
 
-    用途：暫存用戶上傳的圖片（例如圖片編輯的兩步驟流程），
-    取代把整張圖 base64 塞進 bot_sessions.state_metadata（JSONB）。
+    Bucket 裡有兩種東西，壽命完全不同，清理規則也不同（見 cleanup_storage.py）：
+
+      - 暫存圖（`<功能名>/…`）：用戶上傳的原圖，撐過一次流程就刪
+      - 成品（`results/…`）：回傳給用戶的圖片／影片，保留 30 天（見 ResultArchive）
+
+    暫存圖的存在是為了取代把整張圖 base64 塞進 bot_sessions.state_metadata（JSONB）。
 
     需要的環境變數：
       - SUPABASE_URL：專案 URL（https://xxx.supabase.co）
@@ -40,22 +44,33 @@ class StorageService:
             "apikey": self.api_key,
         }
 
-    def upload_image(self, image_bytes: bytes, prefix: str = "tmp") -> str:
-        """上傳圖片並回傳 object key；失敗時拋出例外由呼叫端處理"""
-        key = f"{prefix}/{uuid.uuid4().hex}.jpg"
+    def upload_object(self, data: bytes, prefix: str, extension: str,
+                      content_type: str) -> str:
+        """上傳任意物件並回傳 object key；失敗時拋出例外由呼叫端處理
+
+        比 upload_image() 通用：保存成品時存進來的可能是 mp4，而 Supabase 會
+        把上傳時的 Content-Type 記下來、之後原樣送回給 LINE，型別填錯會讓
+        影片訊息播不出來。
+        """
+        key = f"{prefix}/{uuid.uuid4().hex}.{extension}"
         response = requests.post(
             self._object_url(key),
             headers={
                 **self._headers(),
-                "Content-Type": "image/jpeg",
+                "Content-Type": content_type,
                 "x-upsert": "true",
             },
-            data=image_bytes,
-            timeout=(3, 15),
+            data=data,
+            # 影片可能好幾 MB，寫入逾時給得比讀取寬鬆
+            timeout=(3, 60),
         )
         response.raise_for_status()
-        logger.debug(f"圖片已上傳至 Storage: {key} ({len(image_bytes)} bytes)")
+        logger.debug(f"物件已上傳至 Storage: {key} ({len(data)} bytes, {content_type})")
         return key
+
+    def upload_image(self, image_bytes: bytes, prefix: str = "tmp") -> str:
+        """上傳圖片並回傳 object key；失敗時拋出例外由呼叫端處理"""
+        return self.upload_object(image_bytes, prefix, "jpg", "image/jpeg")
 
     def download_image(self, key: str) -> bytes:
         """下載圖片；失敗時拋出例外由呼叫端處理"""

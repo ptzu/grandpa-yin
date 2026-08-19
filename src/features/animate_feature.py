@@ -10,8 +10,9 @@
 2. **一定要確認才扣點**。這是最貴的功能（預設 25 點），不能讓人手滑。
 
 3. **輸出是影片**，所以推的是 VideoSendMessage。LINE 規定影片訊息一定要附
-   縮圖網址，且由 LINE 自己在推送後去抓——所以縮圖用「用戶原本那張照片」
-   的 signed URL，並且處理完不立刻刪除（見 _finish）。
+   縮圖網址，且由 LINE 自己在推送後去抓——所以縮圖用「用戶原本那張照片」，
+   而且跟影片一樣存進 results/ 保留 30 天（見 _preview_url）；沒有成品保存
+   可用時退回暫存圖的 signed URL，此時它處理完不能立刻刪（見 _finish）。
 """
 from linebot.models import (
     TextSendMessage, VideoSendMessage, QuickReply, QuickReplyButton, MessageAction,
@@ -225,7 +226,8 @@ class AnimateFeature(ReplicateImageFeature):
                     original_content_url=url,
                     preview_image_url=preview_url,
                 ),
-                # 縮圖要留給 LINE 事後去抓，這裡不刪；由 cleanup_storage.py 回收
+                # 縮圖走退路（沒有成品保存）時就是這張暫存圖本人，LINE 事後才
+                # 會去抓，這裡不能刪；由 cleanup_storage.py 回收
                 on_finish=lambda: self.clear_user_state(user_id, discard_images=False),
             )
 
@@ -239,11 +241,19 @@ class AnimateFeature(ReplicateImageFeature):
     def _preview_url(self, state_data: dict, image_bytes: bytes):
         """影片訊息的縮圖網址；取不到回傳 None（呼叫端負責告知用戶）。
 
-        兩條路，優先用 Storage：
-          1. Storage 有設定 → signed URL（正式環境走這條）
-          2. 沒設定 → 由本服務自己在 /preview/<token> 供圖（本地開發用 ngrok
+        三條路，由好到壞：
+          1. 成品保存可用 → 縮圖也存進 results/，跟影片同壽命（正式環境走這條）。
+             影片留 30 天但封面 24 小時就失效的話，用戶回頭看到的是一則沒有預覽
+             圖的訊息，等於白留。
+          2. 只有 Storage → 暫存圖的 signed URL，24 小時後縮圖會失效
+          3. 都沒有 → 由本服務自己在 /preview/<token> 供圖（本地開發用 ngrok
              的公開網址，不必依賴任何雲端服務）
         """
+        if self.result_archive:
+            url = self.result_archive.store_bytes(image_bytes)
+            if url:
+                return url
+
         image_key = (state_data or {}).get("image_key")
         if image_key and self.storage_service:
             try:

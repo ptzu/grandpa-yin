@@ -15,6 +15,7 @@ import pytest
 
 from src.core.settings import get_model_config
 from src.services.preview_store import LocalPreviewStore, set_public_base_url
+from src.services.result_archive import RESULT_PREFIX, ResultArchive
 from src.services import billing as billing_module
 from src.services.billing import BillingService
 from src.features.context import FeatureContext
@@ -31,6 +32,7 @@ from src.services.payment_service import PaymentService
 USER = "U-test-user"
 FAKE_OUTPUT_URL = "https://example.test/output.jpg"
 IMAGE_BYTES = b"\xff\xd8fake-jpeg"
+RESULT_BYTES = b"\xff\xd8fake-result"
 
 # Read from the shipped config/settings.yml, so the suite asserts against whatever
 # is actually configured — and fails loudly if that file stops being valid.
@@ -87,6 +89,9 @@ class FakePublisher:
             "text": getattr(message, "text", None),
             "type": type(message).__name__,
             "quick_reply": labels,
+            # 媒體訊息指向哪裡，決定用戶下個月回頭看還在不在
+            "media_url": getattr(message, "original_content_url", None),
+            "preview_url": getattr(message, "preview_image_url", None),
         })
 
     def process_reply_message(self, reply_token, message, user_id=None, event=None):
@@ -156,16 +161,21 @@ class FakeStorage:
         self.objects = {}
         self.deleted = []
         self.signed = []
+        self.uploads = []
         self._counter = 0
 
     def is_configured(self):
         return True
 
-    def upload_image(self, image_bytes, prefix="tmp"):
+    def upload_object(self, data, prefix, extension, content_type):
         self._counter += 1
-        key = f"{prefix}/{self._counter}.jpg"
-        self.objects[key] = image_bytes
+        key = f"{prefix}/{self._counter}.{extension}"
+        self.objects[key] = data
+        self.uploads.append((key, content_type))
         return key
+
+    def upload_image(self, image_bytes, prefix="tmp"):
+        return self.upload_object(image_bytes, prefix, "jpg", "image/jpeg")
 
     def download_image(self, key):
         return self.objects[key]
@@ -179,6 +189,26 @@ class FakeStorage:
             raise KeyError(key)
         self.signed.append((key, expires_in))
         return f"https://storage.test/signed/{key}?token=fake"
+
+
+class FakeResultArchive(ResultArchive):
+    """The real archive, with only the download faked out.
+
+    Subclassing rather than re-implementing keeps the interesting parts under
+    test: type resolution, the upload, and the signed URL's lifetime.
+    """
+
+    def __init__(self, storage):
+        super().__init__(storage)
+        self.downloaded = []
+        # 設 True 模擬抓不到成品，用來驗證會退回模型的原始網址
+        self.download_fails = False
+
+    def _download(self, url):
+        if self.download_fails:
+            raise RuntimeError("fake download failure")
+        self.downloaded.append(url)
+        return RESULT_BYTES, "image/jpeg"
 
 
 class FakeMemberService:
@@ -273,6 +303,18 @@ class Env:
         return self.state_manager.states.get(USER)
 
     @property
+    def stashed_objects(self):
+        """Storage 裡的暫存圖（不含刻意保留 30 天的成品）"""
+        return {k: v for k, v in self.storage.objects.items()
+                if not k.startswith(f"{RESULT_PREFIX}/")}
+
+    @property
+    def archived_objects(self):
+        """Storage 裡保留給用戶的成品"""
+        return {k: v for k, v in self.storage.objects.items()
+                if k.startswith(f"{RESULT_PREFIX}/")}
+
+    @property
     def messages(self):
         return self.publisher.messages
 
@@ -293,6 +335,11 @@ class Env:
 
     def pushed_image(self):
         return any(m["type"] == "ImageSendMessage" for m in self.publisher.messages)
+
+    def pushed_media(self):
+        """最後一則帶媒體網址的訊息（圖片或影片）；沒有就回 None"""
+        media = [m for m in self.publisher.messages if m["media_url"]]
+        return media[-1] if media else None
 
     def state_is(self, feature, state):
         current = self.state
@@ -340,6 +387,7 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None,
     storage = FakeStorage()
     replicate = FakeReplicateClient(fail_with=replicate_fails_with)
     preview_store = LocalPreviewStore(directory=tempfile.mkdtemp(prefix='gy-preview-test-'))
+    result_archive = FakeResultArchive(storage)
 
     ctx = FeatureContext(
         line=FakeLineClient(),
@@ -350,6 +398,7 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None,
         member_service=member_service,
         storage_service=storage,
         preview_store=preview_store,
+        result_archive=result_archive,
         payment_service=build_payment_service() if with_payments else None,
     )
 
@@ -364,6 +413,7 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None,
 
     env = Env(registry, publisher, state_manager, member_service, storage, replicate)
     env.preview_store = preview_store
+    env.archive = result_archive
     return env
 
 

@@ -60,7 +60,8 @@ class TestPhotoFirstFlow:
         ]
         assert env.pushed_image(), "應推送結果圖片"
         assert env.state is None, "流程結束後狀態要清空"
-        assert env.storage.objects == {}, "暫存照片要刪除"
+        assert env.stashed_objects == {}, "暫存照片要刪除"
+        assert env.archived_objects, "成品要留著，用戶 30 天內回頭還看得到"
 
 
 class TestColorizeHandoff:
@@ -76,7 +77,7 @@ class TestColorizeHandoff:
             {"amount": COLORIZE_COST, "feature": "colorize", "description": "彩色化圖片"}
         ]
         assert env.pushed_image()
-        assert env.storage.objects == {}
+        assert env.stashed_objects == {}
         assert env.state is None
 
 
@@ -243,4 +244,5 @@ def test_no_orphaned_images(env, name, steps):
         else:
             env.send_text(step)
 
-    assert env.storage.objects == {}, f"{name} 之後 Storage 應是乾淨的，殘留 {list(env.storage.objects)}"
+    assert env.stashed_objects == {}, \
+        f"{name} 之後不該留下暫存圖，殘留 {list(env.stashed_objects)}"

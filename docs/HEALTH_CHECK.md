@@ -49,7 +49,8 @@
 4. 🟡 **Supabase connection pooler（port 6543）**——根治連線池上限（連線總量 = 2 processes × pool + 圖片執行緒）。
 5. 🟡 **`transactions` 加 `source/created_by`**——帳目稽核時分辨寫入來源（linebot / admin / 手動 SQL）。
 6. ✅ **Storage bucket 生命週期清理**（2026-08-10 完成）——兩層：狀態轉換時即時刪掉被取代的暫存圖；`scripts/cleanup_storage.py` 每日掃除「超過 24 小時且無 session 引用」的孤兒物件。Supabase 沒有原生 lifecycle policy，只能自己排程，設定見[部署文件](./DEPLOYMENT.md)的「排程維運」。**尚需在 Railway 建立 cron service 才會真正生效。**
-7. 🟢 **Replicate model ID 改環境變數 + `run_replicate` 加 timeout**——換模型免部署、避免 worker 長時間吊死（`replicate.run()` 無 client-side timeout）。
+7. ✅ **成品保留 30 天**（2026-08-19 完成）——推送前把模型輸出轉存進 `results/`，推給 LINE 的是我方 30 天 signed URL；在此之前推的是模型端約一小時就失效的暫存網址，用戶隔天回頭看就是破圖。保存失敗會退回原網址照常推送（見 `src/services/result_archive.py`）。**回收同樣依賴那個尚未建立的 cron service。**
+8. 🟢 **Replicate model ID 改環境變數 + `run_replicate` 加 timeout**——換模型免部署、避免 worker 長時間吊死（`replicate.run()` 無 client-side timeout）。
 
 ---
 

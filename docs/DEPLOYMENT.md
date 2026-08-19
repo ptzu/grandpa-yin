@@ -68,7 +68,7 @@ Railway 改 Variables **不會**自動重啟舊容器的 process 內快取，改
 | `REPLICATE_API_TOKEN` | ✅ | Replicate API token（會計費） |
 | `DATABASE_URL` | ✅ | Postgres 連線字串（見第五章） |
 | `DEPLOY_MODE` | | `platform`（**未設定時的預設**）/ `standalone`。獨立環境**必須明寫** `standalone` |
-| `SUPABASE_URL` | ⭕ | Supabase 專案 URL（圖片 Storage）。技術上可省略，但**正式環境視為必填**——未設定時圖片會以 base64 塞進 `bot_sessions.state_metadata`（JSONB），大照片會讓該欄位膨脹到數 MB，且每則訊息查狀態都要撈出來。另「照片動起來」的縮圖也需要它 |
+| `SUPABASE_URL` | ⭕ | Supabase 專案 URL（圖片 Storage）。技術上可省略，但**正式環境視為必填**——未設定時圖片會以 base64 塞進 `bot_sessions.state_metadata`（JSONB），大照片會讓該欄位膨脹到數 MB，且每則訊息查狀態都要撈出來。另「照片動起來」的縮圖、以及成品保留 30 天都需要它（未設定時成品只剩模型端約一小時的暫存網址，用戶隔天回頭就是破圖）|
 | `SUPABASE_SERVICE_ROLE_KEY` | | **service role / secret** key（非 anon / publishable key） |
 | `SUPABASE_STORAGE_BUCKET` | | 預設 `linebot-temp-images` |
 | `WELCOME_POINTS` | | **覆寫** `config/settings.yml` 的新會員贈點 |
@@ -404,9 +404,20 @@ SELECT id, 10, 'silver-grandpa', points_balance, '補償（incident YYYY-MM-DD�
 
 Supabase Storage **沒有** S3 那種 lifecycle policy 可以在 dashboard 設定，暫存圖的清理要自己排程。
 
-清理分兩層：
+bucket 裡有兩種東西，壽命差一個數量級：
+
+| | 位置 | 保留 | 誰在清 |
+|---|---|---|---|
+| 暫存圖（用戶上傳的原圖） | `<功能名>/…` | 一次流程 | 即時 + 24 小時兜底 |
+| 成品（推給用戶的圖／影片） | `results/…` | **30 天** | 31 天後由同一支腳本回收 |
+
+暫存圖的清理分兩層：
 - **即時**——狀態轉換時自動刪掉被取代的暫存圖（`BaseFeature._discard_superseded_image`），涵蓋走完流程、取消、換圖、中途切功能。
 - **兜底**——`scripts/cleanup_storage.py` 掃 bucket，刪「超過 24 小時 **且** 沒有任何存活 `bot_session` 引用」的物件。負責 crash、重新部署打斷、用戶棄坑這類即時清理接不到的情況。
+
+成品則單純看時間：`results/` 底下超過 `--result-days`（預設 31）就刪。它們**不會**被任何 `bot_session` 引用，所以腳本刻意把這一區跟暫存圖分開判定——誤用 24 小時那條規則的話，用戶隔天回頭看到的就是滿滿的破圖。預設比 signed URL 的 30 天多留一天，避免在到期邊界上跟用戶搶。
+
+> 容量抓法：一張上色成品約 2 MB、一支 5 秒影片約 5 MB。100 位用戶每人每月 10 次 ≈ 2 GB/月，滾動保留 30 天的話穩定在 2 GB 上下，不會無限成長。
 
 在 Railway 加一個 cron service（與 web service 同一個 repo）：
 
