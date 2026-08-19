@@ -29,59 +29,26 @@ from dotenv import load_dotenv
 from sqlalchemy import func
 
 from src.models.database import init_database, get_session
-from src.models.account import Account
-from src.models.linked_identity import LinkedIdentity
 from src.models.grandpa_yin_profile import GrandpaYinProfile
-from src.models.transaction import Transaction
 from src.models.usage_log import UsageLog
 from src.models.bot_session import BotSession
-
-LINE_PROVIDER = 'line'
+from src.services.account_backend import get_account_backend
+from src.services.member_directory import MemberDirectory, looks_like_line_uid
 
 STATUS_MAP = {'normal': '正常', 'vip': 'VIP', 'suspended': '停用', 'banned': '黑名單'}
-
-
-def looks_like_line_uid(s: str) -> bool:
-    """LINE userId 格式：U 開頭 + 32 個十六進位字元"""
-    if len(s) != 33 or not s.startswith('U'):
-        return False
-    try:
-        int(s[1:], 16)
-        return True
-    except ValueError:
-        return False
 
 
 def fmt_dt(dt):
     return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "—"
 
 
-def resolve_account_by_uid(session, line_uid):
-    """LINE UID → Account；未綁定回傳 None"""
-    identity = (
-        session.query(LinkedIdentity)
-        .filter_by(provider=LINE_PROVIDER, provider_uid=line_uid)
-        .first()
-    )
-    if not identity:
-        return None
-    return session.query(Account).filter_by(id=identity.account_id).first()
-
-
-def find_candidates_by_name(session, name):
-    """用顯示名稱模糊查，回傳 [(account, profile, line_uid), ...]"""
-    rows = (
-        session.query(GrandpaYinProfile, LinkedIdentity)
-        .join(LinkedIdentity, LinkedIdentity.account_id == GrandpaYinProfile.account_id)
-        .filter(LinkedIdentity.provider == LINE_PROVIDER)
-        .filter(GrandpaYinProfile.display_name.ilike(f"%{name}%"))
-        .all()
-    )
-    results = []
-    for profile, identity in rows:
-        account = session.query(Account).filter_by(id=profile.account_id).first()
-        results.append((account, profile, identity.provider_uid))
-    return results
+def ledger_owned_by(ledger, account):
+    """Ledger rows name their owner account_id (platform) or subject_id
+    (standalone) — build the filter for whichever this mode's table has."""
+    column = getattr(ledger, 'account_id', None)
+    if column is None:
+        column = ledger.subject_id
+    return column == account.id
 
 
 def print_section(title):
@@ -106,13 +73,7 @@ def print_basic_info(session, account, line_uid):
 
 
 def print_transactions(session, account, limit):
-    txs = (
-        session.query(Transaction)
-        .filter_by(account_id=account.id)
-        .order_by(Transaction.created_at.desc())
-        .limit(limit)
-        .all()
-    )
+    txs = get_account_backend().history_rows(session, account, limit=limit)
     print_section(f"💳 交易流水（最近 {limit} 筆）")
     if not txs:
         print("（無交易記錄）")
@@ -164,19 +125,21 @@ def print_bot_session(session, account):
 
 
 def print_reconciliation(session, account):
+    ledger = get_account_backend().ledger_model
+    owned = ledger_owned_by(ledger, account)
     total_in = (
-        session.query(func.coalesce(func.sum(Transaction.amount), 0))
-        .filter(Transaction.account_id == account.id, Transaction.amount > 0)
+        session.query(func.coalesce(func.sum(ledger.amount), 0))
+        .filter(owned, ledger.amount > 0)
         .scalar()
     )
     total_out = (
-        session.query(func.coalesce(func.sum(Transaction.amount), 0))
-        .filter(Transaction.account_id == account.id, Transaction.amount < 0)
+        session.query(func.coalesce(func.sum(ledger.amount), 0))
+        .filter(owned, ledger.amount < 0)
         .scalar()
     )
     tx_count = (
-        session.query(func.count(Transaction.id))
-        .filter(Transaction.account_id == account.id)
+        session.query(func.count(ledger.id))
+        .filter(owned)
         .scalar()
     )
     failed_count = (
@@ -193,12 +156,8 @@ def print_reconciliation(session, account):
     print(f"處理失敗次數 : {failed_count} 次")
 
     # 一致性檢查：最新一筆交易的餘額應等於帳號現有餘額
-    latest = (
-        session.query(Transaction)
-        .filter_by(account_id=account.id)
-        .order_by(Transaction.created_at.desc())
-        .first()
-    )
+    recent = get_account_backend().history_rows(session, account, limit=1)
+    latest = recent[0] if recent else None
     print()
     if latest and latest.balance_after is not None:
         if latest.balance_after == account.points_balance:
@@ -221,14 +180,16 @@ def trace(identifier, limit):
 
     with get_session() as session:
         # 1. 找到目標帳號
+        directory = MemberDirectory()
         if looks_like_line_uid(identifier):
             line_uid = identifier
-            account = resolve_account_by_uid(session, line_uid)
-            if not account:
+            match = directory.find_by_uid(session, line_uid)
+            if not match:
                 print(f"❌ 找不到此 LINE UID 的會員：{line_uid}")
                 return False
+            account = match.subject
         else:
-            candidates = find_candidates_by_name(session, identifier)
+            candidates = directory.find_by_name(session, identifier)
             if not candidates:
                 print(f"❌ 找不到顯示名稱包含「{identifier}」的會員")
                 return False

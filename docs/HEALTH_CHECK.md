@@ -81,7 +81,7 @@
 
 1. ✅ **standalone 已接 Alembic**（Phase 5 完成）——核心 migration 無跨 schema FK、`f1a2b3c4d5e6` 建 standalone 表、`a7b8c9d0e1f2` 為 platform 冪等補 FK。standalone 與 platform 皆可 `alembic upgrade head`。`setup_test_db.py` 的 `create_all` 仍保留作為本地快速路徑。
 2. ✅ **platform 的資料庫層 FK 由整合 migration 補回**（Phase 5）——`a7b8c9d0e1f2` 在 `public.accounts` 存在且 FK 未建時補上；既有環境（schema.sql 已建 FK）會被偵測跳過。
-3. 🟢 **`scripts/trace_user.py` 仍直接查 Altide 表**——platform 專用診斷工具，維持原樣合理；standalone 環境下不適用。
+3. ✅ **管理腳本已脫離 Altide 表**（2026-08）——找人統一走 `services/member_directory.py`（經 `AccountBackend`），流水查詢改用 `backend.ledger_model` / `history_rows`，因此 `scripts/trace_user.py` 與 `scripts/add_points.py` 在 standalone 與 platform 兩種模式下都可用。
 
 ---
 
