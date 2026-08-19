@@ -261,7 +261,7 @@ class EditFeature(ReplicateImageFeature):
         self.clear_user_state(user_id)
         self._reply(
             reply_token, user_id, event,
-            "好的，已經取消了，沒有扣您的點數 👌\n\n想再試試看的時候，輸入「!功能」就可以了。"
+            "好的，已經取消了，沒有扣您的點數 👌\n\n想再試試看的時候，輸入「功能」就可以了。"
         )
         return None
 

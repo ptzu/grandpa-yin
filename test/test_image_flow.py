@@ -178,7 +178,7 @@ class TestClassicFlow:
         assert env.member.deductions[0]["feature"] == "edit"
 
     def test_colorize_command_then_photo_processes_directly(self, env):
-        env.send_text("圖片彩色化")
+        env.send_text("修復老照片")
         env.send_image()
 
         assert env.member.deductions
@@ -214,7 +214,7 @@ class TestFeatureSwitching:
         assert env.state["feature"] == "edit"
         abandoned_key = env.state["data"]["image_key"]
 
-        env.send_text("圖片彩色化")
+        env.send_text("修復老照片")
 
         assert env.state["feature"] == "colorize", "應切過去，而不是被當成編輯描述"
         assert abandoned_key in env.storage.deleted
@@ -231,7 +231,7 @@ ORPHAN_PATHS = [
     ("換圖後走完流程", ["img", "照我說的修改", "img", "加上彩虹", "確定開始"]),
     ("重新描述後走完流程",
      ["img", "照我說的修改", "加上彩虹", "重新描述", "天空變成夕陽", "確定開始"]),
-    ("中途改用選單功能", ["img", "照我說的修改", "圖片彩色化"]),
+    ("中途改用選單功能", ["img", "照我說的修改", "修復老照片"]),
 ]
 
 

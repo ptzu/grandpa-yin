@@ -21,7 +21,7 @@ class ReplicateImageFeature(BaseFeature):
     子類別需定義：
       - name（property）：功能名稱，同時作為扣點的 feature_type，也是
         config/settings.yml 裡對應的區段名稱
-      - trigger_command：觸發功能的訊息文字（例：「圖片彩色化」）
+      - trigger_command：觸發功能的訊息文字（例：「修復老照片」）
       - image_waiting_state：等待用戶上傳圖片的狀態名稱
       - handle_text / handle_image：功能各自的流程
 
@@ -46,7 +46,7 @@ class ReplicateImageFeature(BaseFeature):
         if is_global_command(message):
             return False
         # 別的功能的觸發指令不該被本功能的狀態吃掉（例如卡在「圖片編輯」
-        # 流程中途時輸入「圖片彩色化」，應該切過去而不是被當成編輯描述）
+        # 流程中途時輸入「修復老照片」，應該切過去而不是被當成編輯描述）
         if self._is_other_trigger_command(message):
             return False
         state = self.resolve_user_state(user_id, user_state)

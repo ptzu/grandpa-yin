@@ -7,9 +7,9 @@ logger = get_logger("colorize")
 
 
 class ColorizeFeature(ReplicateImageFeature):
-    """圖片彩色化功能處理器"""
+    """修復老照片（上色）功能處理器"""
 
-    trigger_command = "圖片彩色化"
+    trigger_command = "修復老照片"
     image_waiting_state = "waiting"
 
     @property
@@ -123,7 +123,7 @@ class ColorizeFeature(ReplicateImageFeature):
         self.publisher.process_reply_message(
             reply_token,
             TextSendMessage(
-                text=f"{user_name} 你好！✨\n🎨 圖片彩色化功能\n\n💎 此功能會消耗 {self.required_points} 點點數，讓您的珍貴回憶重現色彩！\n\n請上傳一張黑白照片，我將為您進行彩色化處理，讓回憶重新綻放光彩 🌈"
+                text=f"{user_name} 你好！✨\n📸 修復老照片\n\n💎 此功能會消耗 {self.required_points} 點，讓您的珍貴回憶重現色彩！\n\n請上傳一張老照片，我會幫您上色，讓回憶重新綻放光彩 🌈"
             ),
             user_id,
             event

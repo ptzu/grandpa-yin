@@ -51,7 +51,7 @@ class TestGlobalCommands:
         env.send_text("圖片編輯")
         env.reset()
 
-        env.send_text("!功能")
+        env.send_text("功能")
 
         assert "請選擇您想要的功能" in env.last_text
 
@@ -62,7 +62,7 @@ class TestTriggerCommands:
         env.send_image()
         env.send_text("照我說的修改")
 
-        env.send_text("圖片彩色化")
+        env.send_text("修復老照片")
 
         assert env.state["feature"] == "colorize"
 
