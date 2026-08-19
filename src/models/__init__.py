@@ -5,6 +5,7 @@ from src.models.transaction import Transaction
 from src.models.grandpa_yin_profile import GrandpaYinProfile
 from src.models.bot_session import BotSession
 from src.models.usage_log import UsageLog
+from src.models.payment_order import PaymentOrder
 from src.models.subject import Subject
 from src.models.wallet_transaction import WalletTransaction
 
@@ -20,6 +21,7 @@ __all__ = [
     'GrandpaYinProfile',
     'BotSession',
     'UsageLog',
+    'PaymentOrder',
     # 獨立模式的身份 + 錢包（grandpa_yin.*，standalone 模式使用）
     'Subject',
     'WalletTransaction',

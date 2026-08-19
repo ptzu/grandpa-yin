@@ -74,6 +74,12 @@ Railway 改 Variables **不會**自動重啟舊容器的 process 內快取，改
 | `WELCOME_POINTS` | | **覆寫** `config/settings.yml` 的新會員贈點 |
 | `COLORIZE_COST` / `EDIT_COST` | | **覆寫** `config/settings.yml` 的點數（見下方） |
 | `COLORIZE_MODEL` / `EDIT_MODEL` | | **覆寫** `config/settings.yml` 的模型 ID |
+| `ECPAY_MERCHANT_ID` | | 綠界商店代號。以下四個 `ECPAY_*` **要嘛全設、要嘛全不設**；缺任一個都視為未設定，儲值自動停用，服務其餘部分照常 |
+| `ECPAY_HASH_KEY` | | 綠界 HashKey（**密鑰**，只放環境變數，絕不進 `settings.yml`——那個檔案在 git 裡） |
+| `ECPAY_HASH_IV` | | 綠界 HashIV（**密鑰**，同上） |
+| `ECPAY_API_URL` | | 綠界 AioCheckOut 端點；測試站與正式站不同，以綠界官方文件為準 |
+| `LIFF_ID` | | 付款頁的 LIFF ID。沒設的話 `/pay` 回 503，且 bot 不會提「儲值」 |
+| `LINE_LOGIN_CHANNEL_ID` | | 驗證付款頁 ID token 用的 LINE Login channel ID。沒設的話 `/pay/checkout` 一律 401 |
 | `SENTRY_DSN` | | 留空則不啟用 Sentry |
 | `SENTRY_ENVIRONMENT` | | `production` / `staging` |
 | `IMAGE_WORKERS` / `IMAGE_QUEUE_LIMIT` | | 圖片處理併發（預設 4 / 8） |
@@ -231,6 +237,8 @@ python3 -m src.core.settings          # 設定檔正常？印出實際生效的�
 | **直接傳一張照片** | 跳出「上色／修改／取消」選單 → 代表 Storage 通了 |
 | 選「幫照片上色」 | 扣點 → 收到成品圖 |
 | 再輸入「歷史」 | 看得到剛才那筆扣點紀錄 |
+| 輸入「儲值」 | 有開通金流才會給付款連結；沒開通會明講「還沒開放」 |
+| 走完一次付款 | 幾秒內點數入帳，「歷史」看得到「儲值 N 點（訂單 …）」 |
 
 任一步卡住，對照第七章的事故速查。傳照片沒反應 → 多半是 Storage bucket 名稱或 key 錯（此時服務會退回 base64 模式並在 log 留 warning）。
 
@@ -312,6 +320,8 @@ DATABASE_URL=<線上連線字串> alembic stamp head
 | 13 | 環境變數錯誤/洩漏 | P0 | 對照清單清點；金鑰洩漏立即輪替全部 key |
 | 14 | LINE rate limit / 額度用完 | P1 | 查 `/v2/bot/message/quota`；push 失敗期間扣了點的用戶事後補償 |
 | 15 | OOM | P1 | 調低 `IMAGE_QUEUE_LIMIT` 或加 RAM；善後撈重啟窗內未收圖的退點 |
+| 16 | 付了錢但點數沒進來 | **P0** | 查 `payment_orders`：`status='paid'` 但 `credited_at IS NULL` 就是漏發。先看 `raw_callback` 確認綠界確實回報成功，再用 `scripts/add_points.py` 補點並記錄訂單編號 |
+| 17 | 同一筆重複入帳 | P0 | 理論上被 `merchant_trade_no` 唯一鍵擋住；真發生代表有繞過 `payment_service` 的寫入，比對 `transactions` 與 `payment_orders` 後扣回 |
 
 ### 常用除錯 SQL（platform 模式）
 

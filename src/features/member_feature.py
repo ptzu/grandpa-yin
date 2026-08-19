@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from src.core.app_logger import get_logger
 from src.features.base_feature import BaseFeature
 
@@ -13,7 +14,7 @@ class MemberFeature(BaseFeature):
         return "member"
     
     # 本功能負責的指令（完全比對；同義詞已精簡掉，見 feature_registry）
-    COMMANDS = ("點數", "歷史", "會員")
+    COMMANDS = ("點數", "歷史", "會員", "儲值")
 
     def can_handle(self, message: str, user_id: str, user_state=None) -> bool:
         """判斷是否能處理此訊息"""
@@ -32,8 +33,44 @@ class MemberFeature(BaseFeature):
             return self._handle_history_query(user_id, user_name, reply_token, event)
         elif message == "會員":
             return self._handle_member_info(user_id, user_name, reply_token, event)
-        
+        elif message == "儲值":
+            return self._handle_topup(user_id, user_name, reply_token, event)
+
         return None
+
+    def _handle_topup(self, user_id: str, user_name: str, reply_token: str, event: dict):
+        """處理儲值：給出付款頁連結與方案"""
+        link = self.payment_service.topup_link() if self.payment_service else None
+        if not link:
+            self.publisher.reply_text(
+                reply_token,
+                "目前還沒開放線上加值。需要點數的話，再跟我們說一聲。",
+                user_id, event,
+            )
+            return "OK"
+
+        try:
+            member = self.member_service.get_or_create_member(user_id, user_name)
+            balance_line = f"您現在有 {member['points']} 點。\n\n" if member else ""
+
+            plans = "\n".join(
+                f"{pkg.label}　NT${pkg.price_twd}"
+                for pkg in self.payment_service.packages()
+            )
+            response = f"""{balance_line}要加點數，點下面的連結：
+{link}
+
+{plans}
+
+付款完成後點數會自動加進來。"""
+
+            self.publisher.reply_text(reply_token, response, user_id, event)
+            return "OK"
+
+        except Exception:
+            logger.exception(f"處理儲值失敗: {user_id}")
+            self.publisher.reply_text(reply_token, "現在沒辦法加值，麻煩晚一點再試。", user_id, event)
+            return "OK"
     
     def _handle_points_query(self, user_id: str, user_name: str, reply_token: str, event: dict):
         """處理點數查詢"""
@@ -69,10 +106,12 @@ class MemberFeature(BaseFeature):
             emoji = status_emoji.get(status, '❓')
             
             status_line = "" if status == "normal" else f"\n狀態：{status_text}"
+            can_top_up = bool(self.payment_service and self.payment_service.topup_link())
+            topup_line = "\n想加點數，輸入「儲值」" if can_top_up else ""
             response = f"""{display_name}，您還有 {points} 點。{status_line}
 
 想看用過哪些，輸入「歷史」
-想看完整資料，輸入「會員」"""
+想看完整資料，輸入「會員」{topup_line}"""
             
             self.publisher.reply_text(reply_token, response, user_id, event)
             return "OK"

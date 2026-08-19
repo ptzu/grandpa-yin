@@ -16,6 +16,37 @@ logger = get_logger("line_client")
 LOADING_ANIMATION_URL = "https://api.line.me/v2/bot/chat/loading/start"
 
 
+LINE_VERIFY_URL = "https://api.line.me/oauth2/v2.1/verify"
+
+
+def verify_id_token(id_token, channel_id, timeout=10):
+    """Verify a LIFF ID token with LINE and return the LINE userId, or None.
+
+    The payment page runs in the browser, so it cannot be trusted to say who
+    the user is — a self-declared userId would let anyone place orders against
+    someone else's account. LINE validates the token's signature, audience and
+    expiry for us; `sub` in the response is the userId.
+    """
+    if not id_token or not channel_id:
+        return None
+
+    try:
+        response = requests.post(
+            LINE_VERIFY_URL,
+            data={'id_token': id_token, 'client_id': channel_id},
+            timeout=timeout,
+        )
+    except requests.exceptions.RequestException:
+        logger.exception("驗證 LINE ID token 失敗（連線問題）")
+        return None
+
+    if response.status_code != 200:
+        logger.warning(f"LINE ID token 驗證未通過：HTTP {response.status_code}")
+        return None
+
+    return response.json().get('sub')
+
+
 class LineClient:
     """Receive-side LINE client: message content, profiles, loading animation."""
 

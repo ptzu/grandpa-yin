@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>加購點數</title>
+<style>
+  /* Sized for elderly users on a phone: large type, large touch targets,
+     high contrast. The desktop view is the same layout, just centred — the
+     page is opened from LINE, so the phone case is the real one. */
+  :root { color-scheme: light; }
+  body {
+    font-family: system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    margin: 0; padding: 1.5rem 1.25rem 3rem;
+    background: #fff; color: #1a1a1a; line-height: 1.7;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 26rem; margin: 0 auto; }
+  h1 { font-size: 1.7rem; margin: 0.5rem 0 0.25rem; }
+  .lead { font-size: 1.15rem; color: #444; margin: 0 0 1.75rem; }
+  .pkg {
+    display: flex; align-items: center; justify-content: space-between;
+    width: 100%; box-sizing: border-box;
+    padding: 1.25rem 1.35rem; margin-bottom: 1rem;
+    font-family: inherit; font-size: 1.35rem; text-align: left;
+    background: #fff; color: #1a1a1a;
+    border: 2px solid #1a1a1a; border-radius: 0.9rem;
+    cursor: pointer;
+  }
+  .pkg:active { background: #f0f0f0; }
+  .pkg:disabled { opacity: 0.45; cursor: default; }
+  .pkg .points { font-weight: 700; }
+  .pkg .price { font-size: 1.25rem; white-space: nowrap; }
+  .note { font-size: 1.05rem; color: #666; margin-top: 1.75rem; }
+  .msg {
+    display: none; margin: 1.25rem 0 0; padding: 1rem 1.15rem;
+    font-size: 1.15rem; border-radius: 0.7rem;
+    background: #fdf0f0; color: #8a1f1f; border: 1px solid #e0b4b4;
+  }
+  .msg.show { display: block; }
+  .busy { opacity: 0.5; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <h1>加購點數</h1>
+  <p class="lead">選一個方案，付款完成後點數會自動加進您的帳戶。</p>
+
+  {% for pkg in packages %}
+  <button class="pkg" data-package="{{ pkg.id }}">
+    <span class="points">{{ pkg.label }}</span>
+    <span class="price">NT${{ pkg.price_twd }}</span>
+  </button>
+  {% endfor %}
+
+  <p class="msg" id="msg"></p>
+
+  <p class="note">付款由綠界科技處理，本服務不會看到您的信用卡資料。</p>
+</div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+  var LIFF_ID = "{{ liff_id }}";
+  var wrap = document.getElementById("wrap");
+  var msg = document.getElementById("msg");
+
+  function showError(text) {
+    // Never use alert(): a modal dialog inside LIFF blocks the whole webview.
+    msg.textContent = text;
+    msg.classList.add("show");
+    wrap.classList.remove("busy");
+  }
+
+  function submitToGateway(action, params) {
+    // ECPay's checkout is a plain form POST; build and submit it.
+    var form = document.createElement("form");
+    form.method = "POST";
+    form.action = action;
+    Object.keys(params).forEach(function (key) {
+      var input = document.createElement("input");
+      input.type = "hidden";
+      input.name = key;
+      input.value = params[key];
+      form.appendChild(input);
+    });
+    document.body.appendChild(form);
+    form.submit();
+  }
+
+  function buy(packageId) {
+    msg.classList.remove("show");
+    wrap.classList.add("busy");
+
+    var idToken = liff.getIDToken();
+    if (!idToken) {
+      showError("請重新從 LINE 開啟這個頁面。");
+      return;
+    }
+
+    fetch("/pay/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id_token: idToken, package_id: packageId })
+    })
+      .then(function (res) {
+        return res.json().then(function (body) {
+          if (!res.ok) throw new Error(body.error || "現在無法付款，麻煩晚一點再試。");
+          return body;
+        });
+      })
+      .then(function (body) { submitToGateway(body.action, body.params); })
+      .catch(function (err) { showError(err.message); });
+  }
+
+  liff.init({ liffId: LIFF_ID })
+    .then(function () {
+      if (!liff.isLoggedIn()) { liff.login(); return; }
+      document.querySelectorAll(".pkg").forEach(function (btn) {
+        btn.addEventListener("click", function () { buy(btn.dataset.package); });
+      });
+    })
+    .catch(function () {
+      showError("頁面載入失敗，麻煩從 LINE 的聊天室重新點一次連結。");
+      document.querySelectorAll(".pkg").forEach(function (b) { b.disabled = true; });
+    });
+</script>
+</body>
+</html>
