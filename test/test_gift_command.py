@@ -423,3 +423,32 @@ def test_share_page_is_the_payment_done_page():
     html = (TEMPLATES / "gift_share.html").read_text(encoding="utf-8")
     assert "付款完成" in html
     assert "選單…\\n" not in html, "換行不可以是字面的 \\n（要用 <br> 或真的換行）"
+
+
+# ------------------------------------------- 已送出的卡：再開連結時提醒，別悶著再送
+
+
+def test_share_page_marks_a_card_sent_after_sending():
+    """送出成功要回報後端，卡才記得「送過了」"""
+    html = (TEMPLATES / "gift_share.html").read_text(encoding="utf-8")
+    assert "/gift/mark-sent" in html, "送出後要標記已送出"
+
+
+def test_share_page_warns_when_reopened_after_sent():
+    """從提醒連結再進來、卡已送過 → 不自動彈，改提示已送出（仍可補救再送）"""
+    html = (TEMPLATES / "gift_share.html").read_text(encoding="utf-8")
+    assert "data.sent" in html, "載入時要看卡是否已送出"
+    assert "再送一次" in html, "已送出時按鈕改為可補救的『再送一次』"
+    assert "已經送給朋友了" in html
+
+
+def test_snapshot_reports_sent_state():
+    """卡的快照要帶 sent 狀態（跨 session 邊界後仍讀得到）"""
+    from src.services import gift_card_service as gc
+    from src.models.gift_card import GiftCard
+    from datetime import datetime, timezone
+
+    card = GiftCard(code="ABCD1234", order_id="o", points=100, status='active')
+    assert gc._snapshot(card).sent is False
+    card.sent_at = datetime.now(timezone.utc)
+    assert gc._snapshot(card).sent is True

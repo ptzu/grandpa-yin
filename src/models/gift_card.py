@@ -54,6 +54,10 @@ class GiftCard(Base):
     redeemed_by_subject_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     redeemed_at = Column(DateTime(timezone=True), nullable=True)
 
+    # When the card was handed to LINE's share picker. Advisory: lets the share
+    # page warn on re-open, but the card can still be re-sent before redemption.
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     def __repr__(self):

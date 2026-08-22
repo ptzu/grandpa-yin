@@ -199,7 +199,7 @@ class RecordingGiftCards:
 
     def issue_for_order(self, session, order):
         # Mirrors the real service: a snapshot, not the ORM row
-        card = gc.IssuedCard(code="ZZZZ9999", points=order.points, redeemed=False)
+        card = gc.IssuedCard(code="ZZZZ9999", points=order.points, redeemed=False, sent=False)
         self.issued.append(card)
         return card
 

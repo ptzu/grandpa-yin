@@ -615,6 +615,28 @@ def gift_done(order_no=None):
                            liff_id=os.getenv("LIFF_ID", ""))
 
 
+@app.route("/gift/mark-sent", methods=["POST"])
+def gift_mark_sent():
+    """分享頁送出卡片後回報，讓卡片標記為「已送出」。
+
+    只是提示用途：下次再開分享頁能提醒買家「已經送過了」，避免同一張一次性
+    的卡不小心又送給第二個人。卡在被領取前仍可再送（送錯人時補救），所以這裡
+    不阻擋任何事，只留一個記號。
+    """
+    if gift_card_service is None:
+        abort(503)
+    order_no = (request.get_json(silent=True) or {}).get("no", "").strip()
+    if not order_no:
+        return {"ok": False}, 400
+    try:
+        with get_session() as session:
+            gift_card_service.mark_sent(session, order_no)
+    except Exception:
+        logger.exception("標記禮物卡已送出失敗")
+        # 標記失敗不影響已送出的事實，回 ok 讓前端不糾結
+    return {"ok": True}
+
+
 @app.route("/gift/share", methods=["GET"])
 def gift_share(order_no=None):
     """用 LINE 原生的好友選擇器把禮物卡片送給朋友。
@@ -741,6 +763,7 @@ def gift_card_status():
         "ready": True,
         "points": card.points,
         "redeemed": card.redeemed,
+        "sent": card.sent,
         # 已經兌換過就不再回傳卡號：沒有用處，也少一個外流的地方
         "code": None if card.redeemed else format_gift_code(card.code),
     }

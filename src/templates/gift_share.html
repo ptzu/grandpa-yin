@@ -223,6 +223,13 @@
           btn.disabled = true;
           btn.textContent = "已經送出";
           say("已經送出了！朋友點一下卡片就能收下。");
+          // Record it so re-opening the link later warns instead of silently
+          // letting the same card go to someone else.
+          fetch("/gift/mark-sent", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ no: ORDER_NO })
+          }).catch(function () {});
         } else {
           btn.disabled = false;   // cancelled — let them try again
           say("沒有送出，您可以再選一次。");
@@ -249,10 +256,18 @@
         hide("loading");
         show("ready");
         document.getElementById("share").addEventListener("click", doShare);
-        // Auto-open the picker so the buyer's single tap on the previous page is
-        // the only one needed. If the browser blocks a gesture-less launch, the
-        // "選擇要送給誰" button below is the fallback — one tap, still no code.
-        setTimeout(doShare, 200);
+
+        if (data.sent) {
+          // Already sent once and not yet redeemed. Don't auto-launch — the
+          // buyer likely re-opened the reminder link. Tell them it's on its
+          // way, but still allow a re-send in case they picked the wrong person.
+          document.getElementById("share").textContent = "再送一次";
+          say("這份禮物已經送給朋友了，正在等他收下。\n送錯人的話，可以再選一次。");
+        } else {
+          // First time here: auto-open the picker so the single tap on the
+          // previous page is all that's needed.
+          setTimeout(doShare, 200);
+        }
       })
       .catch(function () { fail("讀取禮物卡失敗，請稍後再試。"); });
   }

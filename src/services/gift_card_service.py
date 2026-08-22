@@ -47,7 +47,7 @@ _MAX_CODE_ATTEMPTS = 5
 # What callers outside the session get back. Deliberately not the ORM row: it
 # would be detached the moment the session closes, and every caller here reads
 # it after that point (the HTTP handler renders it, the callback returns it).
-IssuedCard = namedtuple("IssuedCard", "code points redeemed")
+IssuedCard = namedtuple("IssuedCard", "code points redeemed sent")
 
 
 def _snapshot(card):
@@ -55,7 +55,8 @@ def _snapshot(card):
     if card is None:
         return None
     return IssuedCard(code=card.code, points=card.points,
-                      redeemed=card.redeemed_at is not None)
+                      redeemed=card.redeemed_at is not None,
+                      sent=card.sent_at is not None)
 
 
 # Redemption outcomes. `points` / `balance` are only meaningful when ok.
@@ -149,6 +150,28 @@ class GiftCardService:
             .first()
         )
         return _snapshot(card)
+
+    def mark_sent(self, session, merchant_trade_no):
+        """Stamp a card as handed to the share picker. Caller owns the session.
+
+        Only stamps the first time and only while unredeemed — so it records
+        "has been sent at least once", not a send count, and never touches a
+        card someone already redeemed.
+        """
+        from src.models.payment_order import PaymentOrder  # local: avoid cycle
+
+        card = (
+            session.query(GiftCard)
+            .join(PaymentOrder, PaymentOrder.id == GiftCard.order_id)
+            .filter(PaymentOrder.merchant_trade_no == merchant_trade_no)
+            .with_for_update()
+            .first()
+        )
+        if card is None or card.redeemed_at is not None:
+            return
+        if card.sent_at is None:
+            card.sent_at = datetime.now(timezone.utc)
+            session.commit()
 
     # ---------------------------------------------------------------- redeem
 
