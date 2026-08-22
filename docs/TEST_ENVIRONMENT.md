@@ -158,7 +158,7 @@ ngrok config add-authtoken <your-token>   # dashboard.ngrok.com 取得
 |---|---|---|
 | **LINE Channel** | 一個 channel 的 webhook 只能設一個，共用會混進真實用戶 | 另開測試 channel，用獨立 `CHANNEL_*` |
 | **Supabase DB** | 測試會建假會員、改點數、寫交易 | 另開 Supabase 專案當 staging，套用相同 migration |
-| **Supabase Storage** | 圖片編輯暫存圖 | 用測試專案自己的 bucket |
+| **Supabase Storage** | P圖大神暫存圖 | 用測試專案自己的 bucket |
 | **Replicate** | 會**真的計費** | 量小可共用 token；不想花錢就 mock |
 | **Sentry** | 測試錯誤污染線上告警 | `SENTRY_ENVIRONMENT=staging` 或留空 |
 

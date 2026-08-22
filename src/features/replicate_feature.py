@@ -49,23 +49,12 @@ class ReplicateImageFeature(BaseFeature):
             return True
         if is_global_command(message):
             return False
-        # 別的功能的觸發指令不該被本功能的狀態吃掉（例如卡在「圖片編輯」
+        # 別的功能的觸發指令不該被本功能的狀態吃掉（例如卡在「P圖大神」
         # 流程中途時輸入「修復老照片」，應該切過去而不是被當成編輯描述）
-        if self._is_other_trigger_command(message):
+        if self.is_other_trigger_command(message):
             return False
         state = self.resolve_user_state(user_id, user_state)
         return bool(state and state.get("feature") == self.name)
-
-    def _is_other_trigger_command(self, message: str) -> bool:
-        """訊息是否為其他已註冊功能的觸發指令"""
-        if not self.registry:
-            return False
-        for feature in self.registry.get_all_features():
-            if feature is self:
-                continue
-            if getattr(feature, "trigger_command", None) == message:
-                return True
-        return False
 
     def can_handle_image(self, user_id: str) -> bool:
         """在等待圖片狀態時才處理圖片"""

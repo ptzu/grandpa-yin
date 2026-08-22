@@ -20,7 +20,7 @@ class TestRegistrationOrder:
         assert photo_intent.can_handle_image(USER) is True, "catch-all 必須永遠收得下圖片"
 
     def test_a_feature_in_state_wins_over_the_catch_all(self, env):
-        env.send_text("圖片編輯")
+        env.send_text("P圖大神")
         env.send_image()
         assert env.state["feature"] == "edit", "有狀態的功能優先於 catch-all"
 
@@ -29,7 +29,7 @@ class TestGlobalCommands:
     def test_global_command_works_mid_flow(self):
         """卡在編輯流程中途時，「點數」仍要查得到點數"""
         env = build_env(with_member_feature=True)
-        env.send_text("圖片編輯")
+        env.send_text("P圖大神")
         env.send_image()
         env.reset()
 
@@ -39,7 +39,7 @@ class TestGlobalCommands:
 
     def test_global_command_does_not_destroy_the_flow(self):
         env = build_env(with_member_feature=True)
-        env.send_text("圖片編輯")
+        env.send_text("P圖大神")
         env.send_image()
         before = env.state
 
@@ -48,7 +48,7 @@ class TestGlobalCommands:
         assert env.state == before, "查點數不該把用戶踢出編輯流程"
 
     def test_menu_command_works_mid_flow(self, env):
-        env.send_text("圖片編輯")
+        env.send_text("P圖大神")
         env.reset()
 
         env.send_text("功能")
@@ -65,6 +65,30 @@ class TestTriggerCommands:
         env.send_text("修復老照片")
 
         assert env.state["feature"] == "colorize"
+
+    def test_trigger_command_starts_fresh_over_stale_photo_intent(self, env):
+        """殘留 photo_intent 狀態下打功能觸發指令，要走全新流程、不沿用舊圖"""
+        env.send_image()  # 舊照片：進入 photo_intent waiting_choice
+        assert env.state_is("photo_intent", "waiting_choice")
+        env.reset()
+
+        env.send_text("P圖大神")
+
+        assert env.state_is("edit", "waiting_image"), (
+            f"應由 edit 全新接手並要求上傳照片，實得：{env.state!r}"
+        )
+        assert "照片收到" not in env.last_text, "不該沿用舊圖說已收到照片"
+
+    def test_trigger_command_discards_stale_stashed_photo(self, env):
+        """全新開始時，殘留的暫存圖要被即時清掉，不留孤兒物件"""
+        env.send_image()  # 舊照片被暫存
+        assert env.stashed_objects, "前置：應有一張暫存圖"
+
+        env.send_text("P圖大神")
+
+        assert env.stashed_objects == {}, (
+            f"殘留暫存圖應在全新開始時清掉，實得：{list(env.stashed_objects)}"
+        )
 
     def test_free_text_in_description_stage_is_treated_as_description(self, env):
         env.send_image()
@@ -97,7 +121,7 @@ class TestStateLookups:
     @pytest.mark.xfail(reason="handle_text 不接收路由層查好的 state，會重複查一次 DB")
     def test_state_is_read_once_per_text_message(self, env, monkeypatch):
         """路由層查一次狀態就該夠用；重複查代表每則訊息多打一次 DB"""
-        env.send_text("圖片編輯")
+        env.send_text("P圖大神")
 
         calls = []
         original = env.state_manager.get_state
@@ -110,7 +134,7 @@ class TestStateLookups:
 
     @pytest.mark.xfail(reason="can_handle_image / handle_image 各自再查一次 DB")
     def test_state_is_read_once_per_image_message(self, env, monkeypatch):
-        env.send_text("圖片編輯")
+        env.send_text("P圖大神")
 
         calls = []
         original = env.state_manager.get_state

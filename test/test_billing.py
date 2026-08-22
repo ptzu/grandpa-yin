@@ -145,7 +145,7 @@ class TestCapacity:
 
 
 class TestThroughTheEditFeature:
-    """同樣的退點行為，從真實的圖片編輯流程走一遍"""
+    """同樣的退點行為，從真實的P圖大神流程走一遍"""
 
     def test_model_failure_refunds_and_clears_state(self):
         env = build_env(replicate_fails_with=RuntimeError("Replicate 掛了"))

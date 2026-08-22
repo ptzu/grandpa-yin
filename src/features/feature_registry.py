@@ -102,7 +102,7 @@ class FeatureRegistry:
         user_id = event.get('source', {}).get('userId', '')
         
         # 1. 首先檢查用戶是否有特定功能的狀態。
-        #    狀態中的功能「當下」不見得收得了圖（例如圖片編輯已進到等描述階段），
+        #    狀態中的功能「當下」不見得收得了圖（例如P圖大神已進到等描述階段），
         #    所以仍要問過 can_handle_image，接不住就往下走，避免圖片被吃掉沒回應。
         user_state = self._get_user_state(user_id)
         if user_state and user_state.get("feature"):

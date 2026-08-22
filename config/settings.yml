@@ -32,9 +32,9 @@
 
 features:
 
-  # 圖片編輯：傳圖 → 選（或打）修改描述 → 確認後扣點
+  # P圖大神：傳圖 → 選（或打）修改描述 → 確認後扣點
   edit:
-    model: google/nano-banana
+    model: google/nano-banana-2
     cost: 5
     loading_seconds: 45
     input:

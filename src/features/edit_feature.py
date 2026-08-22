@@ -31,13 +31,13 @@ PRESET_DESCRIPTIONS = [
 
 
 class EditFeature(ReplicateImageFeature):
-    """圖片編輯功能處理器
+    """P圖大神功能處理器
 
     流程：上傳圖片 → 選（或輸入）編輯描述 → 確認扣點 → 背景處理。
     圖片可在描述／確認階段隨時換掉，描述也可以重來，確認前都不扣點。
     """
 
-    trigger_command = "圖片編輯"
+    trigger_command = "P圖大神"
     image_waiting_state = STATE_WAITING_IMAGE
 
     @property
@@ -173,7 +173,7 @@ class EditFeature(ReplicateImageFeature):
             self._ask_for_description(reply_token, user_id, event, stash, is_replacement=is_replacement)
 
         except Exception:
-            logger.exception(f"圖片編輯 handle_image 失敗: {user_id}")
+            logger.exception(f"P圖大神 handle_image 失敗: {user_id}")
             self.discard_stashed_image(previous_data)
             self.clear_user_state(user_id)
             self._reply(reply_token, user_id, event, "處理圖片時發生錯誤，請稍後再試 🙏")
@@ -187,7 +187,7 @@ class EditFeature(ReplicateImageFeature):
     # ---- 各階段 ----
 
     def _handle_edit_request(self, reply_token: str, user_id: str, event: dict) -> dict:
-        """處理圖片編輯請求：guard → 設定等待狀態 → 引導上傳"""
+        """處理P圖大神請求：guard → 設定等待狀態 → 引導上傳"""
         if self.reply_maintenance_if_unavailable(reply_token, user_id, event):
             return None
 
@@ -295,12 +295,12 @@ class EditFeature(ReplicateImageFeature):
             self.submit_billed_processing(
                 user_id,
                 event,
-                deduct_description=f"圖片編輯：{description[:20]}",
+                deduct_description=f"P圖大神：{description[:20]}",
                 run=lambda: self.run_model(image_bytes, prompt=description),
             )
 
         except Exception:
-            logger.exception(f"圖片編輯確認處理失敗: {user_id}")
+            logger.exception(f"P圖大神確認處理失敗: {user_id}")
             self.clear_user_state(user_id)
             self._reply(reply_token, user_id, event, "處理的時候出了點問題，麻煩晚一點再試。")
 

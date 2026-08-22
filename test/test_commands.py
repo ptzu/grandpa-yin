@@ -8,7 +8,7 @@ import pytest
 from conftest import build_env
 from src.features.feature_registry import GLOBAL_COMMANDS
 
-TRIGGERS = ["修復老照片", "圖片編輯", "照片動起來"]
+TRIGGERS = ["修復老照片", "P圖大神", "照片動起來"]
 GLOBALS = ["點數", "歷史", "會員", "儲值", "兌換", "功能", "使用說明"]
 
 
