@@ -59,17 +59,26 @@ features:
       image_is_list: false
       prompt_field: prompt
       default_prompt: >
-        The people in this vintage portrait keep a soft, natural, gentle smile —
-        only a slight, calm upturn of the lips, staying close to their original
-        expression. Do not create a wide, broad, toothy or exaggerated grin, do
-        not open the mouth, and do not change the expression abruptly or make it
-        stronger over time. They give a small, gentle wave to the camera in a
-        friendly greeting — the hand stays low, near waist level, moving only
-        slightly from the wrist. Do not raise or lift the arms. Natural, gentle,
-        minimal human movement.
+        Animate this vintage portrait as a living photograph.
+        The camera is completely locked off on a tripod: no pan, no tilt, no
+        zoom, no dolly, no parallax and no handheld shake. The framing and
+        composition are identical in every single frame.
+        The only things that move in the entire video are the people. Everything
+        else stays a frozen still photograph: the background, walls, floor,
+        furniture, picture frames, plants, curtains, written text and
+        inscriptions, patterns and textures are all completely static and must
+        not shift, sway, ripple, flicker, grow or change in any way.
+        The people keep a soft, natural, gentle smile — only a slight, calm
+        upturn of the lips, staying close to their original expression. Do not
+        create a wide, broad, toothy or exaggerated grin, do not open the mouth,
+        and do not change the expression abruptly or make it stronger over time.
+        They give a small, gentle wave to the camera in a friendly greeting —
+        the hand stays low, near waist level, moving only slightly from the
+        wrist. Do not raise or lift the arms. Natural, gentle, minimal human
+        movement.
         Keep every face perfectly stable and identical throughout — no morphing,
         no distortion, no change of identity or age. They stay standing in the
-        same positions; the background and objects remain unchanged.
+        same positions and their clothing keeps its original shape.
         Photorealistic, warm, respectful, documentary style.
     extra_input:
       duration: 5
