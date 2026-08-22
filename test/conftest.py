@@ -90,6 +90,7 @@ class FakePublisher:
         self.messages.append({
             "kind": kind,
             "text": getattr(message, "text", None),
+            "alt_text": getattr(message, "alt_text", None),
             "type": type(message).__name__,
             "quick_reply": labels,
             # 媒體訊息指向哪裡，決定用戶下個月回頭看還在不在

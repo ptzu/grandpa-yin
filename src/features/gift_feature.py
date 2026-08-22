@@ -1,6 +1,7 @@
 import os
 
-from linebot.models import TextSendMessage, QuickReply, QuickReplyButton, MessageAction
+from linebot.models import (TextSendMessage, FlexSendMessage,
+                            QuickReply, QuickReplyButton, MessageAction)
 
 from src.core.app_logger import get_logger
 from src.features.base_feature import BaseFeature
@@ -71,18 +72,39 @@ class GiftFeature(BaseFeature):
 
     def notify_gift_ready_to_send(self, buyer_uid: str, points: int,
                                   order_no: str) -> bool:
-        """提醒買家：禮物已備好但還沒送出，點連結回到分享頁選朋友。
+        """付款完成的卡片：一顆「送給朋友」按鈕帶回分享頁。
 
-        用在「付完款、還沒選朋友就關頁」的情況——卡已開立卻卡在資料庫裡，買家
-        看不到卡號也沒有重新送出的入口。這則訊息就是那個入口。
+        送給誰就是誰的、送出即定案（見分享頁的 sent 防護），所以這裡不必再
+        嘮叨「還沒送出」——就是一則付款完成通知，附一個送出入口。也是「付完款
+        就關頁」時買家重新送出的唯一入口。
         """
         liff_id = os.getenv("LIFF_ID", "")
         if not liff_id:
             return False
         link = f"https://liff.line.me/{liff_id}?p=share&no={order_no}"
-        message = TextSendMessage(
-            text=(f"🎁 您買的 {points} 點禮物已經準備好了，還沒送出喔。\n\n"
-                  f"點下面的連結，選一位朋友送出：\n{link}"),
+        message = FlexSendMessage(
+            alt_text=f"🎁 付款完成！您買好了 {points} 點禮物，點這裡送給朋友",
+            contents={
+                "type": "bubble",
+                "body": {
+                    "type": "box", "layout": "vertical", "spacing": "md",
+                    "contents": [
+                        {"type": "text", "text": "🎁", "size": "xxl", "align": "center"},
+                        {"type": "text", "text": "付款完成", "size": "xl",
+                         "weight": "bold", "align": "center"},
+                        {"type": "text", "text": f"您買好了 {points} 點禮物",
+                         "size": "md", "align": "center", "color": "#666666",
+                         "wrap": True},
+                    ],
+                },
+                "footer": {
+                    "type": "box", "layout": "vertical",
+                    "contents": [{
+                        "type": "button", "style": "primary", "color": "#06c755",
+                        "action": {"type": "uri", "label": "送給朋友", "uri": link},
+                    }],
+                },
+            },
         )
         return self.publisher.process_push_message(buyer_uid, message)
 

@@ -398,6 +398,21 @@ def test_notification_reads_like_a_gift():
     assert "禮物" in text and "600 點" in text and "650 點" in text
 
 
+def test_ready_to_send_is_a_flex_card_with_a_send_button(monkeypatch):
+    """付款完成通知是 Flex 卡片、附「送給朋友」按鈕，語氣不再是「還沒送出」"""
+    from conftest import build_env
+    monkeypatch.setenv("LIFF_ID", "1234567890-abcdefgh")
+    env = build_env(with_member_feature=True, with_gift=True)
+    feature = env.registry.get_feature_by_name("gift")
+
+    feature.notify_gift_ready_to_send("U" + "a" * 32, 600, "GY123")
+
+    msg = env.publisher.messages[-1]
+    assert msg["type"] == "FlexSendMessage", "要是 Flex 卡片，不是純文字"
+    assert "付款完成" in msg.get("alt_text", "")
+    assert "還沒送出" not in msg.get("alt_text", ""), "不再嘮叨還沒送出"
+
+
 # ---------------------------------------------- 送禮方從頭到尾看不到卡號
 #
 # 收禮改成點卡片一鍵領取，卡號降級為純內部識別。買家、收禮方的任何頁面上都
