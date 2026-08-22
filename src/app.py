@@ -32,6 +32,7 @@ from src.features.gift_feature import GiftFeature
 from src.features.followup_feature import FollowUpFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
 from src.models.database import init_database, get_session
+from src.models.payment_order import PaymentOrder
 from src.services.member_service import MemberService
 from src.services.gift_card_service import GiftCardService
 from src.services.storage_service import StorageService
@@ -773,10 +774,23 @@ def gift_card_status():
 def pay_done():
     """付款後使用者被導回的頁面。
 
-    刻意不顯示餘額也不查訂單：入帳由回調決定，兩者可能差幾秒，
-    這裡若說「已加值」而回調還沒到，長輩會以為錢丟了。
+    顯示「購買了幾點」但不顯示餘額：購買點數是下單時就定死的（訂單快照），
+    講它安全；餘額由回調決定、可能差幾秒，這裡若搶說「已加值」而回調還沒到，
+    長輩會以為錢丟了——所以只說「會加進帳戶」，不報餘額。
     """
-    return render_template("pay_done.html")
+    order_no = (request.form.get("MerchantTradeNo")
+                or request.args.get("no", "")).strip()
+    points = None
+    if order_no:
+        try:
+            with get_session() as session:
+                order = (session.query(PaymentOrder)
+                         .filter_by(merchant_trade_no=order_no).first())
+                if order is not None:
+                    points = order.points
+        except Exception:
+            logger.exception("查詢付款訂單點數失敗")
+    return render_template("pay_done.html", points=points)
 
 
 def handle_text_message(event):

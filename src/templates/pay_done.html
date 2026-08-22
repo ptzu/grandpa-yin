@@ -34,6 +34,12 @@
   h1 { font-size: 1.8rem; margin: 0 0 0.6rem; }
   p { font-size: 1.2rem; margin: 0 0 0.6rem; }
   .hint { color: #888; font-size: 1.05rem; margin-top: 1.2rem; }
+  .amount {
+    margin: 1.25rem auto 0.25rem; padding: 1.1rem 1.25rem; max-width: 18rem;
+    background: #faf7f2; border-radius: 0.8rem;
+  }
+  .amount .label { font-size: 1rem; color: #888; margin-bottom: 0.2rem; }
+  .amount .pts { font-size: 1.5rem; font-weight: 700; color: #1a1a1a; }
 </style>
 </head>
 <body>
@@ -43,6 +49,12 @@
     </div>
     <h1>付款完成</h1>
     <p>謝謝您的購買 💛</p>
+    {% if points %}
+    <div class="amount">
+      <div class="label">💎 購買內容</div>
+      <div class="pts">銀爺爺點數 {{ points }} 點</div>
+    </div>
+    {% endif %}
     <p>點數會在幾秒內加進您的帳戶。</p>
     <p class="hint">回到聊天室輸入「點數」就可以確認。</p>
   </div>
