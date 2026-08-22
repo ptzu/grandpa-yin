@@ -56,7 +56,7 @@ class TestPhotoFirstFlow:
         env.send_text("確定開始")
 
         assert env.member.deductions == [
-            {"amount": EDIT_COST, "feature": "edit", "description": "圖片編輯：背景換成海灘"}
+            {"amount": EDIT_COST, "feature": "edit", "description": "P圖大神：背景換成海灘"}
         ]
         assert env.pushed_image(), "應推送結果圖片"
         assert env.state_is("followup", "offered"), "交付後接上「還要再做點什麼嗎」"
@@ -143,7 +143,7 @@ class TestGuidance:
     """等照片時打字：要有引導，不能沒反應"""
 
     def test_text_while_waiting_image_gets_guidance(self, env):
-        env.send_text("圖片編輯")
+        env.send_text("P圖大神")
         assert env.state_is("edit", "waiting_image")
         env.reset()
 
@@ -167,7 +167,7 @@ class TestClassicFlow:
     """舊路徑（先打指令再傳圖）仍然可用"""
 
     def test_edit_command_then_photo(self, env):
-        env.send_text("圖片編輯")
+        env.send_text("P圖大神")
         env.send_image()
 
         assert env.state_is("edit", "waiting_description"), "edit 應自己收下照片，沒被 photo_intent 攔走"
@@ -210,7 +210,7 @@ class TestFeatureSwitching:
     """流程中途切換到另一個功能"""
 
     def test_switching_mid_flow_discards_the_abandoned_photo(self, env):
-        env.send_text("圖片編輯")
+        env.send_text("P圖大神")
         env.send_image()
         assert env.state["feature"] == "edit"
         abandoned_key = env.state["data"]["image_key"]
@@ -246,3 +246,35 @@ def test_no_orphaned_images(env, name, steps):
 
     assert env.stashed_objects == {}, \
         f"{name} 之後不該留下暫存圖，殘留 {list(env.stashed_objects)}"
+
+
+class TestStashFallback:
+    """Supabase 上傳失敗時，暫存圖要退回 base64，而不是讓整個流程炸掉。"""
+
+    def test_upload_failure_falls_back_to_base64(self, env):
+        edit = env.registry.get_feature_by_name("edit")
+
+        def boom(*args, **kwargs):
+            raise ConnectionError("supabase down")
+
+        env.storage.upload_image = boom
+
+        stash = edit.stash_image(b"raw-bytes")
+
+        assert "image_key" not in stash, "上傳失敗不該留下 image_key"
+        assert stash.get("image_data"), "應退回 base64 內嵌"
+
+    def test_photo_flow_survives_storage_outage(self, env):
+        """整條流程：上傳壞掉時，用戶仍收到「照片收到了」而不是錯誤。"""
+        def boom(*args, **kwargs):
+            raise ConnectionError("supabase down")
+
+        env.storage.upload_image = boom
+
+        env.send_text("P圖大神")
+        env.send_image()
+
+        assert env.state_is("edit", "waiting_description"), (
+            f"上傳失敗應退回 base64 並繼續，實得：{env.state!r}"
+        )
+        assert "錯誤" not in env.last_text

@@ -14,8 +14,8 @@
 LINE Platform ──► Railway (Flask /webhook, gunicorn -w 2 --threads 8)
                      │
                      ├─► Supabase PostgreSQL（會員、點數、狀態、usage_logs）
-                     ├─► Supabase Storage（圖片編輯的暫存圖）
-                     ├─► Replicate API（彩色化 / 圖片編輯，背景執行緒池 4 workers + 8 queue）
+                     ├─► Supabase Storage（P圖大神的暫存圖）
+                     ├─► Replicate API（彩色化 / P圖大神，背景執行緒池 4 workers + 8 queue）
                      ├─► LINE Messaging API（reply / push / loading animation）
                      └─► Sentry（錯誤追蹤）
 ```

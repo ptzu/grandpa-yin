@@ -136,7 +136,7 @@ def init():
     if storage_service.is_configured():
         logger.info(f"Supabase Storage 已設定 (bucket: {storage_service.bucket})")
     else:
-        logger.warning("Supabase Storage 未設定，圖片編輯將以 base64 暫存於資料庫 state")
+        logger.warning("Supabase Storage 未設定，P圖大神將以 base64 暫存於資料庫 state")
 
     # 7. 影片縮圖的本地降級（Storage 未設定時由本服務自己供圖）
     preview_store = LocalPreviewStore()

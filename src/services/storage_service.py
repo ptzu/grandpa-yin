@@ -10,6 +10,9 @@ logger = get_logger("storage")
 LIST_PAGE_SIZE = 100
 DELETE_BATCH_SIZE = 100
 
+# .env.example 的佔位值片段；出現這些代表設定沒填完（見 is_configured）
+_PLACEHOLDER_MARKERS = ("your-project", "your_service_role_key")
+
 
 class StorageService:
     """Supabase Storage 客戶端（走 Storage REST API，不引入 supabase-py 依賴）
@@ -33,7 +36,16 @@ class StorageService:
         self.bucket = os.getenv("SUPABASE_STORAGE_BUCKET", "linebot-temp-images")
 
     def is_configured(self) -> bool:
-        return bool(self.base_url and self.api_key)
+        """兩個必要值都要有，且不能是 .env.example 留下的佔位值。
+
+        半填的設定（例如部署準備時直接複製 .env.example）不該被當成「已設定」
+        而硬去連 your-project.supabase.co——那只會讓上傳整個炸掉。當成未設定，
+        呼叫端才能優雅退回 base64 暫存。
+        """
+        if not (self.base_url and self.api_key):
+            return False
+        combined = f"{self.base_url} {self.api_key}".lower()
+        return not any(marker in combined for marker in _PLACEHOLDER_MARKERS)
 
     def _object_url(self, key: str) -> str:
         return f"{self.base_url}/storage/v1/object/{self.bucket}/{key}"

@@ -57,7 +57,22 @@ class BaseFeature(ABC):
         if user_state is _UNSET:
             return self.get_user_state(user_id)
         return user_state
-    
+
+    def is_other_trigger_command(self, message: str) -> bool:
+        """訊息是否為其他已註冊功能的觸發指令。
+
+        用來讓「明確的功能觸發指令」不被目前殘留的狀態吃掉——不論是卡在
+        某個流程中途（replicate_feature），或殘留在 photo_intent 選單狀態。
+        """
+        if not self.registry:
+            return False
+        for feature in self.registry.get_all_features():
+            if feature is self:
+                continue
+            if getattr(feature, "trigger_command", None) == message:
+                return True
+        return False
+
     @abstractmethod
     def handle_text(self, event: dict) -> dict:
         """
@@ -193,10 +208,15 @@ class BaseFeature(ABC):
         base64 內嵌——會讓 JSONB row 膨脹，僅作為不中斷服務的降級路徑。
         """
         if self.storage_service and self.storage_service.is_configured():
-            key = self.storage_service.upload_image(image_bytes, prefix=self.name)
-            return {"image_key": key}
-
-        logger.warning("Supabase Storage 未設定，退回以 base64 暫存於 state（建議設定 SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY）")
+            try:
+                key = self.storage_service.upload_image(image_bytes, prefix=self.name)
+                return {"image_key": key}
+            except Exception:
+                # 暫存圖只是一次性的中繼檔，上傳失敗（連線/金鑰問題）不該讓整個
+                # 流程炸掉，退回 base64 讓用戶還能繼續。仍記 WARNING 方便排查。
+                logger.exception("Supabase 上傳暫存圖失敗，改用 base64 暫存於 state（請檢查 Supabase 設定／連線）")
+        else:
+            logger.warning("Supabase Storage 未設定，退回以 base64 暫存於 state（建議設定 SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY）")
         return {"image_data": base64.b64encode(image_bytes).decode('utf-8')}
 
     @staticmethod

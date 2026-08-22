@@ -41,6 +41,10 @@ class PhotoIntentFeature(BaseFeature):
         """只處理「照片已暫存、等用戶選功能」狀態下的文字"""
         if is_global_command(message):
             return False
+        # 別的功能的觸發指令（例如殘留在選單狀態時又打「P圖大神」）不該被這裡
+        # 用舊暫存圖接走，應讓該功能自己全新接手（見 route_text_message step 3）。
+        if self.is_other_trigger_command(message):
+            return False
         state = self.resolve_user_state(user_id, user_state)
         return bool(state and state.get("feature") == self.name)
 

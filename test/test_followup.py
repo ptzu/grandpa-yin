@@ -162,7 +162,7 @@ class TestResultSurvives:
         colorize_a_photo(env)
         archived_before = dict(env.archived_objects)
 
-        env.send_text("圖片編輯")
+        env.send_text("P圖大神")
 
         assert env.archived_objects == archived_before
 

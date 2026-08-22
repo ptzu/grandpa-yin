@@ -40,7 +40,7 @@ class MenuFeature(BaseFeature):
         quick_reply_buttons = [
             QuickReplyButton(action=MessageAction(label="📸 修復老照片", text="修復老照片")),
             QuickReplyButton(action=MessageAction(label="🎬 照片動起來", text="照片動起來")),
-            QuickReplyButton(action=MessageAction(label="🎨 圖片編輯", text="圖片編輯")),
+            QuickReplyButton(action=MessageAction(label="🎨 P圖大神", text="P圖大神")),
             QuickReplyButton(action=MessageAction(label="💎 我的點數", text="點數")),
         ]
 
@@ -83,7 +83,7 @@ class MenuFeature(BaseFeature):
 🎬 照片動起來（{animate_cost} 點）
 讓照片裡的人動起來，做成一段大約 5 秒的影片。
 
-🎨 圖片編輯（{edit_cost} 點）
+🎨 P圖大神（{edit_cost} 點）
 照您說的修改照片，例如換背景、換衣服顏色。
 可以從選單點，也可以自己打字說。
 
