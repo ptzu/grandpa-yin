@@ -5,17 +5,22 @@ from src.models.database import Base
 
 
 class PaymentOrder(Base):
-    """A top-up order: money in, points out.
+    """A paid order: money in, points or a gift card out.
 
     Owned by grandpa_yin in both deploy modes, because the order is a product
     concern — only the resulting points land in the shared ledger.
 
-    The table exists to make crediting *idempotent and auditable*. The payment
+    The table exists to make settlement *idempotent and auditable*. The payment
     provider retries its callback, so `merchant_trade_no` is unique and
-    `credited_at` records whether the points were already granted; both are
+    `credited_at` records whether the order was already settled; both are
     checked in the database, not in memory, because the app runs multiple
     workers. `raw_callback` keeps the provider's own words for when a user
     disputes a charge.
+
+    `kind` decides what settlement means — points straight into the buyer's
+    balance, or a gift card someone else will redeem. Everything before that
+    moment (placing, paying, verifying, the once-only guarantee) is identical,
+    which is why both share this table rather than getting one each.
     """
     __tablename__ = 'payment_orders'
     __table_args__ = (
@@ -28,7 +33,15 @@ class PaymentOrder(Base):
     # Logical reference to the paying subject (platform: accounts.id /
     # standalone: grandpa_yin.subjects.id). No cross-schema FK — same reasoning
     # as BotSession.
-    subject_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    #
+    # Null for gift orders: the buyer is not identified (the checkout page is
+    # open web, no LINE login) and the recipient is not known until the card is
+    # redeemed. The subject who ends up with the points is on the gift card.
+    subject_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+
+    # 'topup' — points go straight to subject_id.
+    # 'gift'  — a gift card is issued instead; subject_id is null.
+    kind = Column(String(10), nullable=False, default='topup', server_default='topup')
 
     # ECPay's MerchantTradeNo: max 20 alphanumeric chars, unique per merchant.
     merchant_trade_no = Column(String(20), nullable=False)

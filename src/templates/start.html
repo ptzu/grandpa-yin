@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>加購點數</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    margin: 0; padding: 2rem 1.25rem 3rem;
+    background: #f6f7f9; color: #1a1a1a; line-height: 1.6;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 26rem; margin: 0 auto; }
+
+  header { margin: 0 0 1.5rem; padding: 0 0.25rem; }
+  h1 { font-size: 1.8rem; margin: 0 0 0.35rem; }
+  .sub { font-size: 1.15rem; color: #6b7280; margin: 0; }
+
+  /* Pick who it's for once, up top; the plans below are listed once. */
+  .toggle {
+    display: flex; gap: 0.4rem; padding: 0.35rem;
+    background: #eceef1; border-radius: 1rem; margin-bottom: 0.5rem;
+  }
+  .toggle button {
+    flex: 1; padding: 0.9rem 0.5rem; font-family: inherit; font-size: 1.1rem;
+    font-weight: 700; color: #6b7280; background: transparent;
+    border: none; border-radius: 0.75rem; cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .toggle button.active {
+    background: #fff; box-shadow: 0 1px 3px rgba(16,24,40,0.12);
+  }
+  .toggle button.active { color: #06c755; }
+
+  .hint { font-size: 1.02rem; color: #6b7280; margin: 0 0.35rem 1.4rem; }
+
+  .plans { display: flex; flex-direction: column; gap: 0.8rem; }
+  .plan {
+    display: flex; align-items: center; justify-content: space-between;
+    width: 100%; padding: 1.3rem 1.25rem; font-family: inherit; text-align: left;
+    cursor: pointer; background: #fff; border: 1px solid #eceef1;
+    border-radius: 1rem;
+    box-shadow: 0 1px 2px rgba(16,24,40,0.04), 0 6px 16px rgba(16,24,40,0.06);
+    transition: transform 0.1s ease;
+  }
+  .plan:active { transform: scale(0.98); }
+  .plan .pts { font-size: 1.35rem; font-weight: 700; }
+  .plan .pts { color: #1a1a1a; }
+  .plan .price {
+    font-size: 1.15rem; color: #fff; background: #06c755;
+    padding: 0.4rem 0.95rem; border-radius: 999px; white-space: nowrap;
+  }
+
+  .msg {
+    display: none; margin: 1.2rem 0.25rem 0; padding: 1rem 1.15rem;
+    font-size: 1.05rem; border-radius: 0.7rem;
+    background: #fdf0f0; color: #8a1f1f; border: 1px solid #e0b4b4;
+  }
+  .msg.show { display: block; }
+  .busy { opacity: 0.5; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <header>
+    <h1>加購點數</h1>
+    <p class="sub">要幫誰買呢？</p>
+  </header>
+
+  <div class="toggle" id="toggle">
+    <button data-kind="self" class="active">💎 我自己用</button>
+    <button data-kind="gift">🎁 送給朋友</button>
+  </div>
+  <p class="hint" id="hint">點數加進您的帳戶</p>
+
+  <div class="plans" id="plans" data-kind="self">
+    {% for pkg in packages %}
+    <button class="plan" data-package="{{ pkg.id }}">
+      <span class="pts">{{ pkg.label }}</span>
+      <span class="price">NT${{ pkg.price_twd }}</span>
+    </button>
+    {% endfor %}
+  </div>
+
+  <p class="msg" id="msg"></p>
+</div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+  var LIFF_ID = "{{ liff_id }}";
+  var wrap = document.getElementById("wrap");
+  var msg = document.getElementById("msg");
+  var plans = document.getElementById("plans");
+  var hint = document.getElementById("hint");
+  var kind = "self";
+
+  var HINTS = {
+    self: "點數加進您的帳戶",
+    gift: "選一位朋友，他點一下就收下"
+  };
+
+  function showError(text) {
+    msg.textContent = text; msg.classList.add("show");
+    wrap.classList.remove("busy");
+  }
+
+  function submitToGateway(action, params) {
+    var form = document.createElement("form");
+    form.method = "POST"; form.action = action;
+    Object.keys(params).forEach(function (key) {
+      var input = document.createElement("input");
+      input.type = "hidden"; input.name = key; input.value = params[key];
+      form.appendChild(input);
+    });
+    document.body.appendChild(form);
+    form.submit();
+  }
+
+  function checkout(endpoint, payload) {
+    fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(function (res) {
+        return res.json().then(function (body) {
+          if (!res.ok) throw new Error(body.error || "現在無法付款，麻煩晚一點再試。");
+          return body;
+        });
+      })
+      .then(function (body) { submitToGateway(body.action, body.params); })
+      .catch(function (err) { showError(err.message); });
+  }
+
+  function buy(pkgId) {
+    msg.classList.remove("show");
+    wrap.classList.add("busy");
+    if (kind === "self") {
+      var idToken = liff.getIDToken();
+      if (!idToken) { showError("請重新從 LINE 開啟這個頁面。"); return; }
+      checkout("/pay/checkout", { id_token: idToken, package_id: pkgId });
+    } else {
+      // 帶上 id_token（在 LINE 內開啟時有）：讓後端記住買家，萬一付完款沒選
+      // 朋友就關頁，bot 能提醒他送出。拿不到 token 也照樣送出，只是不記名。
+      var giftToken = liff.getIDToken && liff.getIDToken();
+      checkout("/gift/checkout", giftToken
+        ? { id_token: giftToken, package_id: pkgId }
+        : { package_id: pkgId });
+    }
+  }
+
+  document.querySelectorAll("#toggle button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      kind = btn.dataset.kind;
+      document.querySelectorAll("#toggle button").forEach(function (b) {
+        b.classList.toggle("active", b === btn);
+      });
+      plans.dataset.kind = kind;
+      hint.textContent = HINTS[kind];
+    });
+  });
+
+  function bind() {
+    document.querySelectorAll(".plan").forEach(function (btn) {
+      btn.addEventListener("click", function () { buy(btn.dataset.package); });
+    });
+  }
+
+  liff.init({ liffId: LIFF_ID })
+    .then(function () {
+      if (!liff.isLoggedIn()) { liff.login({ redirectUri: window.location.href }); return; }
+      bind();
+    })
+    .catch(function () { bind(); });
+</script>
+</body>
+</html>

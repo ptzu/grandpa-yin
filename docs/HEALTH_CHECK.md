@@ -1,6 +1,6 @@
 # 系統健檢報告
 
-> 最近更新：2026-08-10
+> 最近更新：2026-08-19
 > 範圍：src/（app.py、core/、features/、services/、models/）、Procfile、alembic/
 > 部署環境：Railway（Flask + gunicorn `-w 2 --threads 8`）、Supabase（PostgreSQL + Storage）
 > 前次健檢：2026-07-07（發現 5 大高危 + 8 項中低），修復進度見下方。
@@ -44,13 +44,19 @@
 以下多為「韌性 / 營運」層級，非阻斷性，建議排入：
 
 1. 🟠 **`/health` endpoint + 外部監控**——服務掛掉目前只能靠用戶回報。加檢查 DB 連線的 `/health` 配 UptimeRobot。
-2. 🟠 **跨 process 的 webhook 去重**——去重表在**記憶體**，`-w 2` 下同一 event 重送打到另一 process 會漏擋，可能重複扣點。改用 Postgres `processed_events` 表或 Redis。（金流相關，優先）
-3. 🟡 **推送失敗的自動退點**——「處理成功但 push 失敗」用戶會白扣點，目前靠人工補償。
-4. 🟡 **Supabase connection pooler（port 6543）**——根治連線池上限（連線總量 = 2 processes × pool + 圖片執行緒）。
-5. 🟡 **`transactions` 加 `source/created_by`**——帳目稽核時分辨寫入來源（linebot / admin / 手動 SQL）。
-6. ✅ **Storage bucket 生命週期清理**（2026-08-10 完成）——兩層：狀態轉換時即時刪掉被取代的暫存圖；`scripts/cleanup_storage.py` 每日掃除「超過 24 小時且無 session 引用」的孤兒物件。Supabase 沒有原生 lifecycle policy，只能自己排程，設定見[部署文件](./DEPLOYMENT.md)的「排程維運」。**尚需在 Railway 建立 cron service 才會真正生效。**
-7. ✅ **成品保留 30 天**（2026-08-19 完成）——推送前把模型輸出轉存進 `results/`，推給 LINE 的是我方 30 天 signed URL；在此之前推的是模型端約一小時就失效的暫存網址，用戶隔天回頭看就是破圖。保存失敗會退回原網址照常推送（見 `src/services/result_archive.py`）。**回收同樣依賴那個尚未建立的 cron service。**
-8. 🟢 **Replicate model ID 改環境變數 + `run_replicate` 加 timeout**——換模型免部署、避免 worker 長時間吊死（`replicate.run()` 無 client-side timeout）。
+2. 🟡 **推送失敗的自動退點**——「處理成功但 push 失敗」用戶會白扣點，目前靠人工補償。
+3. 🟡 **Supabase connection pooler（port 6543）**——根治連線池上限（連線總量 = 2 processes × pool + 圖片執行緒）。
+4. 🟡 **`transactions` 加 `source/created_by`**——帳目稽核時分辨寫入來源（linebot / admin / 手動 SQL）。
+5. 🟢 **Replicate model ID 改環境變數 + `run_replicate` 加 timeout**——換模型免部署、避免 worker 長時間吊死（`replicate.run()` 無 client-side timeout）。
+6. 🟢 **跨 process 的 webhook 去重**——去重表（`app.py` 的 `_processed_events`）在**記憶體**，`-w 2` 下兩個 process 各存一份，同一個 event 重送打到另一個就會漏擋、重複扣點。
+
+   **但目前這個洞是關著的**：它唯一要擋的是 LINE 重送，而 LINE Console 的 **Webhook redelivery 是關閉的**（2026-08-19 確認），關閉時 LINE 不重送，這段程式碼是一層閒置的保險。因此列為 🟢，不是 🟠。
+
+   代價在另一邊：redelivery 關著代表**只要有一則 webhook 沒回 200（部署那幾秒、DB 抽風、worker 重啟），那則訊息就永久消失**——用戶傳了照片，Bot 毫無反應。等於用「可能漏訊息」換掉「可能重複扣點」。對長輩產品這個選擇是對的（重複扣點會有客訴，漏訊息用戶通常會自己再傳一次），但要知道自己選了什麼。
+
+   **順序不可顛倒**：哪天想開 redelivery 換取不漏訊息，**先**把去重改成 Postgres `processed_events` 表（`INSERT ... ON CONFLICT DO NOTHING`，約一小時），**再**開 Console 的開關。先開開關就是把金流洞打開。
+7. ✅ **Storage bucket 生命週期清理**（2026-08-10 完成）——兩層：狀態轉換時即時刪掉被取代的暫存圖；`scripts/cleanup_storage.py` 每日掃除「超過 24 小時且無 session 引用」的孤兒物件。Supabase 沒有原生 lifecycle policy，只能自己排程，設定見[部署文件](./DEPLOYMENT.md)的「排程維運」。**尚需在 Railway 建立 cron service 才會真正生效。**
+8. ✅ **成品保留 30 天**（2026-08-19 完成）——推送前把模型輸出轉存進 `results/`，推給 LINE 的是我方 30 天 signed URL；在此之前推的是模型端約一小時就失效的暫存網址，用戶隔天回頭看就是破圖。保存失敗會退回原網址照常推送（見 `src/services/result_archive.py`）。**回收同樣依賴那個尚未建立的 cron service。**
 
 ---
 
@@ -88,4 +94,4 @@
 
 ## 五、「1000 人撐不撐得住」的直接回答
 
-**撐得住。** 瓶頸不在 Supabase 或 Railway，而在先前的「單 sync worker、每訊息多次阻塞呼叫、無界執行緒」——這三項已於 2026-07 修復。目前架構支撐 1000 名註冊用戶、數十人同時在線無虞。再上一個量級（持續 100+ 併發圖片處理）時，才需要獨立圖片 worker + 佇列（Redis + RQ），並優先完成第三章第 2、4 項。
+**撐得住。** 瓶頸不在 Supabase 或 Railway，而在先前的「單 sync worker、每訊息多次阻塞呼叫、無界執行緒」——這三項已於 2026-07 修復。目前架構支撐 1000 名註冊用戶、數十人同時在線無虞。再上一個量級（持續 100+ 併發圖片處理）時，才需要獨立圖片 worker + 佇列（Redis + RQ），並優先完成第三章的 Supabase connection pooler。

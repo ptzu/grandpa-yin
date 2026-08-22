@@ -2,13 +2,14 @@ import os
 import time
 import uuid
 import threading
+from urllib.parse import parse_qs, quote, unquote, urlparse
 from dotenv import load_dotenv
 
 # Load local .env so `python app.py` works for local dev; on Railway there is no
 # .env file, so this is a harmless no-op and platform Variables are used as-is.
 load_dotenv()
 
-from flask import Flask, request, abort, Response, render_template
+from flask import Flask, request, abort, Response, render_template, redirect
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from src.core.app_logger import get_logger, request_id_var
@@ -27,17 +28,22 @@ from src.features.colorize_feature import ColorizeFeature
 from src.features.animate_feature import AnimateFeature
 from src.features.edit_feature import EditFeature
 from src.features.member_feature import MemberFeature
+from src.features.gift_feature import GiftFeature
 from src.features.followup_feature import FollowUpFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
 from src.models.database import init_database, get_session
+from src.models.payment_order import PaymentOrder
 from src.services.member_service import MemberService
+from src.services.gift_card_service import GiftCardService
 from src.services.storage_service import StorageService
 from src.services.result_archive import ResultArchive
 from src.services.ecpay_client import ECPayClient
-from src.services.line_client import verify_id_token
+from src.services.line_client import verify_id_token, verify_id_token_claims
 from src.services.payment_service import (
-    ECPAY_ACK, ECPAY_REJECT, PaymentError, PaymentService,
+    ECPAY_ACK, ECPAY_REJECT, KIND_GIFT, PaymentError, PaymentService,
 )
+from src.services.gift_card_service import format_code as format_gift_code
+from src.services import gift_card_service as gift_redeem
 
 logger = get_logger("app")
 
@@ -51,6 +57,7 @@ feature_registry = None
 member_service = None
 preview_store = None
 payment_service = None
+gift_card_service = None
 _initialized = False
 
 # 已處理事件的記憶體快取，防止 LINE webhook 重送造成重複處理／重複扣點。
@@ -76,7 +83,7 @@ def _is_duplicate_event(event_id):
 
 def init():
     """初始化所有 LINE Bot 相關組件"""
-    global app, line_bot_api, handler, publisher, user_state_manager, feature_registry, member_service, preview_store, payment_service, _initialized
+    global app, line_bot_api, handler, publisher, user_state_manager, feature_registry, member_service, preview_store, payment_service, gift_card_service, _initialized
     
     # 如果已經初始化過，直接返回
     if _initialized:
@@ -134,11 +141,18 @@ def init():
     # 7. 影片縮圖的本地降級（Storage 未設定時由本服務自己供圖）
     preview_store = LocalPreviewStore()
 
-    # 8. 儲值（沒設定 ECPAY_* 或設定檔沒有 payments 區段時自動停用）
+    # 8. 儲值與禮物卡（沒設定 ECPAY_* 或設定檔沒有 payments 區段時自動停用）
+    #
+    # 兌換卡只需要資料庫，不需要金流：金流關掉之後，已經賣出去的卡還是要
+    # 兌換得了，否則等於沒收使用者已經付過的錢。
     ecpay = ECPayClient.from_env()
-    payment_service = PaymentService(ecpay=ecpay) if member_service else None
+    gift_card_service = GiftCardService() if member_service else None
+    payment_service = (PaymentService(ecpay=ecpay, gift_cards=gift_card_service)
+                       if member_service else None)
     if payment_service and payment_service.enabled:
         logger.info(f"儲值已啟用：{len(payment_service.packages())} 種點數包")
+        logger.info("禮物卡購買頁已啟用" if payment_service.gift_link()
+                    else "禮物卡購買頁未啟用（未設定 PUBLIC_BASE_URL）")
     else:
         logger.info("儲值未啟用")
 
@@ -154,6 +168,7 @@ def init():
         preview_store=preview_store,
         result_archive=ResultArchive(storage_service),
         payment_service=payment_service,
+        gift_card_service=gift_card_service,
     )
 
     # 10. 註冊所有功能
@@ -170,6 +185,10 @@ def init():
     # 註冊會員功能（如果會員服務可用）
     if member_service:
         feature_registry.register(MemberFeature(ctx))
+
+    # 禮物卡兌換：跟著資料庫走，與金流是否開著無關（見上面第 8 步）
+    if gift_card_service:
+        feature_registry.register(GiftFeature(ctx))
 
     # 圖片路由的 catch-all：沒先選功能就上傳的照片由它接住並詢問意圖。
     # 必須最後註冊，否則會搶在 colorize / edit 之前接走圖片。
@@ -215,6 +234,78 @@ def _public_base_url():
     scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
     host = request.headers.get("X-Forwarded-Host", request.host)
     return f"{scheme}://{host}"
+
+
+def _liff_params():
+    """這次請求真正的參數，含 LIFF 包在 `liff.state` 裡的那些。
+
+    從 LIFF URL 開啟時，LINE **不會**把附加的路徑與 query 直接接在 Endpoint URL
+    後面，而是整包 URL-encode 進一個 `liff.state` 參數：
+
+        liff.line.me/<id>?p=pay   →   https://<endpoint>/?liff.state=%3Fp%3Dpay
+
+    所以只讀 request.args 會看不到 p——頁面會落在根目錄的預設內容上，而使用者
+    只覺得「按了沒反應」。這裡把兩種來源合起來，直接開網址與從 LINE 進來都通。
+    """
+    params = dict(request.args)
+    state = request.args.get("liff.state")
+    if state:
+        # state 長得像 "?p=share&no=GY..." 或 "/pay?no=..."；只取得出 query 的部分
+        decoded = unquote(state)
+        parsed = urlparse(decoded)
+        query = parsed.query or (decoded.lstrip("?") if not parsed.path else "")
+        for key, values in parse_qs(query).items():
+            params.setdefault(key, values[0] if values else "")
+
+        # 早期版本的連結把頁面放在路徑上（.../pay、.../gift/share）。那種訊息
+        # 還留在使用者的聊天室裡，翻上去點到不該掉進預設頁，所以一併認得。
+        if "p" not in params and parsed.path:
+            path = parsed.path.strip("/")
+            if path == "pay":
+                params["p"] = "pay"
+            elif path == "gift/share":
+                params["p"] = "share"
+    # request.args 的值是字串，dict() 之後也保持字串
+    return {k: (v[0] if isinstance(v, list) else v) for k, v in params.items()}
+
+
+@app.route("/", methods=["GET"])
+def index():
+    """LIFF 的唯一進入點，用 query 參數決定要開哪一頁。
+
+    一個 LIFF app 只能設一個 Endpoint URL，而這裡有兩頁要在 LINE 裡開。理論上
+    可以用 `liff.line.me/<id>/<path>` 把路徑接在後面，但實測那條路會落回
+    Endpoint URL 本身，而且 LINE 會把結果當成「外部網站」而非 LIFF app（於是
+    shareTargetPicker 之類的 API 全部不可用）。query 參數則是穩定傳得進來的，
+    所以路由改由 `?p=` 決定：
+
+        https://liff.line.me/<LIFF_ID>?p=pay
+        https://liff.line.me/<LIFF_ID>?p=share&no=<訂單編號>
+
+    這裡**直接算繪結果、不做轉址**：LIFF 進入點若回 302，LINE 會判定離開了
+    LIFF app，同樣會失去那些 API。
+
+    參數要經過 `_liff_params()` 取得，不能直接讀 request.args——從 LINE 進來時
+    它們被包在 `liff.state` 裡。
+    """
+    params = _liff_params()
+    page = params.get("p")
+    if page == "start":
+        return start_page()
+    if page == "pay":
+        return pay_page()
+    if page == "share":
+        return gift_share(order_no=params.get("no", ""))
+    if page == "claim":
+        return gift_claim(code=params.get("code", ""))
+    if page == "done":
+        # liff.login from the gift-done page returns here (LINE wraps the
+        # target in liff.state and drops it on the endpoint root). Route it
+        # back to the done page, now with a login session.
+        return gift_done(order_no=params.get("no", ""))
+
+    # 一般訪客（或監控探針）：給一行字就好，不假裝有東西可賣。
+    return Response("銀爺爺服務運作中。\n", mimetype="text/plain; charset=utf-8")
 
 
 @app.route("/webhook", methods=["POST"])
@@ -332,6 +423,26 @@ def _payments_ready():
     return payment_service is not None and payment_service.enabled
 
 
+@app.route("/start", methods=["GET"])
+def start_page():
+    """買點數的單一入口：一頁裡「幫誰買 + 選方案」一次選完。
+
+    bot 只給這一個連結（?p=start），而不是自用一條、送禮一條——長輩看到兩個
+    連結會分不清該點哪個。這頁同時列出兩種用途的方案，點方案直接送去綠界，
+    不必再進第二頁選方案。
+
+    自用要 LINE 登入（才知道點數進誰的帳戶），送禮不記名不用；頁面在 LINE 內
+    開啟（?p=start 走 LIFF），所以登入拿得到。checkout 仍分別打 /pay/checkout
+    與 /gift/checkout，這頁只是把兩者的入口合在一起。
+    """
+    if not _payments_ready():
+        abort(503)
+
+    return render_template("start.html",
+                           packages=payment_service.packages(),
+                           liff_id=os.getenv("LIFF_ID", ""))
+
+
 @app.route("/pay", methods=["GET"])
 def pay_page():
     """LIFF 付款頁：選點數包 → 送去綠界。
@@ -405,17 +516,281 @@ def pay_ecpay_callback():
         # 不回 1|OK，讓綠界重送——這種失敗多半是暫時性的（DB 斷線）
         return ECPAY_REJECT
 
+    # 剛開好的禮物卡、而且知道買家是誰 → 提醒他把禮物送出去（萬一他付完款就
+    # 關了頁面還沒選朋友）。重送的回調 credited=False，不會重複提醒。
+    if result.credited and result.buyer_uid and result.card:
+        _nudge_gift_buyer(result.buyer_uid, result.card,
+                          payload.get("MerchantTradeNo"))
+
     return ECPAY_ACK if result.ok else ECPAY_REJECT
+
+
+def _nudge_gift_buyer(buyer_uid, card, order_no):
+    """Push the buyer a 'your gift is ready to send' message with a link back
+    into the share flow — the safety net for closing the page mid-send.
+
+    Takes order_no as a plain string, never the ORM order: the callback's
+    session is already closed by here, so touching a detached order would raise
+    DetachedInstanceError. `card` is a snapshot (IssuedCard), so card.points is
+    safe. Same lesson as the gift-done page.
+    """
+    feature = feature_registry.get_feature_by_name("gift") if feature_registry else None
+    if feature is None:
+        return
+    try:
+        feature.notify_gift_ready_to_send(buyer_uid, card.points, order_no)
+    except Exception:
+        logger.exception("提醒買家送出禮物失敗")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 禮物卡：朋友在網頁上買 → 拿到卡號 → 長輩在 LINE 裡輸入「兌換」
+#
+# 這幾條路由刻意「不」走 LIFF：買的人通常是子女，可能坐在電腦前、甚至不是
+# LINE 用戶。不記名的卡不需要知道買家是誰，多一道 LINE 登入只會多一個放棄點。
+# 身分驗證的缺席不影響安全：建單不會發出任何東西，卡只在驗過簽章的回調裡開立。
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@app.route("/gift", methods=["GET"])
+def gift_page():
+    """送禮頁：選點數包 → 送去綠界。"""
+    if not _payments_ready():
+        abort(503)
+
+    return render_template("gift.html", packages=payment_service.packages())
+
+
+@app.route("/gift/checkout", methods=["POST"])
+def gift_checkout():
+    """建立禮物卡訂單，回傳要 POST 給綠界的表單欄位。
+
+    不需要身分驗證：金額與點數由伺服器端設定決定，付款成功前不會產生任何有
+    價值的東西。但若付款頁在 LINE 裡（有 id_token），就順手記下「買家是誰」
+    ——這樣萬一買家付完款、還沒選朋友就關頁，bot 能提醒他把禮物送出去。
+    收禮人仍然完全不記名，是誰領誰得。
+    """
+    if not _payments_ready():
+        abort(503)
+
+    data = request.get_json(silent=True) or {}
+    # id_token 是選填的：從 LINE 內開啟會有，一般網頁買家沒有（維持不記名）
+    buyer_uid = verify_id_token(data.get("id_token"),
+                                os.getenv("LINE_LOGIN_CHANNEL_ID"))
+    base = _public_base_url()
+    try:
+        with get_session() as session:
+            result = payment_service.create_order(
+                session,
+                buyer_uid,                 # 有就記買家，沒有就不記名
+                data.get("package_id"),
+                kind=KIND_GIFT,
+                return_url=f"{base}/pay/ecpay/callback",
+                order_result_url=f"{base}/gift/done",
+            )
+            trade_no = result["order"].merchant_trade_no
+            session.commit()
+            return {"action": result["action"], "params": result["params"],
+                    "order_no": trade_no}
+    except PaymentError as e:
+        return {"error": str(e)}, 400
+    except Exception:
+        logger.exception("建立禮物卡訂單失敗")
+        abort(500)
+
+
+@app.route("/gift/done", methods=["GET", "POST"])
+def gift_done(order_no=None):
+    """付款後導回：在這一頁選朋友把禮物送出。
+
+    使用者的瀏覽器常比綠界的伺服器通知早到，所以頁面會自己輪詢 /gift/card
+    等卡開好，再顯示「選朋友送出」。從 liff.login 回來時會以 order_no 直接
+    帶入（見根路由 p=done），不必再靠 form/args。
+    """
+    if order_no is None:
+        order_no = (request.form.get("MerchantTradeNo")
+                    or request.args.get("no", "")).strip()
+
+    return render_template("gift_done.html",
+                           order_no=order_no,
+                           liff_id=os.getenv("LIFF_ID", ""))
+
+
+@app.route("/gift/mark-sent", methods=["POST"])
+def gift_mark_sent():
+    """分享頁送出卡片後回報，讓卡片標記為「已送出」。
+
+    只是提示用途：下次再開分享頁能提醒買家「已經送過了」，避免同一張一次性
+    的卡不小心又送給第二個人。卡在被領取前仍可再送（送錯人時補救），所以這裡
+    不阻擋任何事，只留一個記號。
+    """
+    if gift_card_service is None:
+        abort(503)
+    order_no = (request.get_json(silent=True) or {}).get("no", "").strip()
+    if not order_no:
+        return {"ok": False}, 400
+    try:
+        with get_session() as session:
+            gift_card_service.mark_sent(session, order_no)
+    except Exception:
+        logger.exception("標記禮物卡已送出失敗")
+        # 標記失敗不影響已送出的事實，回 ok 讓前端不糾結
+    return {"ok": True}
+
+
+@app.route("/gift/share", methods=["GET"])
+def gift_share(order_no=None):
+    """用 LINE 原生的好友選擇器把禮物卡片送給朋友。
+
+    這一頁必須從 LIFF 連結開啟（liff.line.me/<LIFF_ID>?no=...），不能是付款完成
+    頁的一部分：綠界的付款流程會把瀏覽器帶離本站再帶回來，LIFF 的執行環境不保證
+    撐得過那一趟。做成獨立的一頁等於重新啟動一次 LIFF，也讓買家在電腦上付完款、
+    改用手機開這個連結分享。
+
+    LINE 沒有讀取好友清單的 API——挑中的是誰，我們自始至終不會知道，訊息也是由
+    買家自己的帳號送出的。這裡能做的就是把卡片組好交給 LINE。
+    """
+    if not _payments_ready():
+        abort(503)
+
+    liff_id = os.getenv("LIFF_ID")
+    if not liff_id:
+        logger.warning("LIFF_ID 未設定，禮物卡分享頁無法使用")
+        abort(503)
+
+    if order_no is None:
+        order_no = _liff_params().get("no", "")
+    return render_template("gift_share.html",
+                           order_no=order_no.strip(),
+                           liff_id=liff_id,
+                           bot_basic_id=os.getenv("LINE_BASIC_ID", ""))
+
+
+@app.route("/gift/claim", methods=["GET"])
+def gift_claim(code=None):
+    """收禮的人按下卡片上的「領取」之後看到的頁面。
+
+    存在的理由是把卡號變成純內部識別：收禮的長輩不必看到它、不必打字，按一下
+    就入帳。LINE 不允許推播給沒跟 bot 互動過的人，所以「按那一下」省不掉——
+    它就是那個互動；但除了那一下之外，其餘步驟都能拿掉。
+
+    身分一律以 LINE 驗證過的 ID token 為準（見 /gift/claim/redeem），這一頁只
+    負責把 token 拿到手。
+    """
+    if gift_card_service is None:
+        abort(503)
+
+    liff_id = os.getenv("LIFF_ID")
+    if not liff_id:
+        logger.warning("LIFF_ID 未設定，禮物卡領取頁無法使用")
+        abort(503)
+
+    if code is None:
+        code = _liff_params().get("code", "")
+
+    return render_template("gift_claim.html", code=code.strip(), liff_id=liff_id,
+                           bot_basic_id=os.getenv("LINE_BASIC_ID", ""))
+
+
+@app.route("/gift/claim/redeem", methods=["POST"])
+def gift_claim_redeem():
+    """領取頁呼叫：驗明身分後把卡兌換給他。
+
+    點數的去向由 LINE 驗過的 ID token 決定，不是由頁面自稱的 userId——否則
+    任何人都能把別人的禮物領到自己帳上。兌換本身仍然只會成功一次（卡號唯一鍵
+    + 列鎖 + redeemed_at），重複按不會重複加點。
+    """
+    if gift_card_service is None:
+        abort(503)
+
+    data = request.get_json(silent=True) or {}
+    claims = verify_id_token_claims(data.get("id_token"),
+                                    os.getenv("LINE_LOGIN_CHANNEL_ID"))
+    if not claims or not claims.get("sub"):
+        abort(401)
+
+    user_id = claims["sub"]
+    try:
+        # 領取的人不一定已經是會員（可能還沒加 bot 好友），先確保帳戶存在，
+        # 否則點數沒有地方可去
+        if member_service:
+            member_service.get_or_create_member(user_id, claims.get("name"))
+
+        result = gift_card_service.redeem_for_user(user_id, data.get("code"))
+    except Exception:
+        logger.exception("領取禮物卡失敗")
+        abort(500)
+
+    if result.status != gift_redeem.OK:
+        return {"status": result.status, "points": result.points}
+
+    # 頁面關掉之後聊天室裡也要留得下痕跡
+    feature = feature_registry.get_feature_by_name("gift") if feature_registry else None
+    if feature:
+        try:
+            feature.notify_gift_received(user_id, result.points, result.balance)
+        except Exception:
+            # 推播失敗不影響已經入帳的事實，頁面上仍然會顯示成功
+            logger.exception("推播收禮通知失敗")
+
+    return {"status": result.status, "points": result.points,
+            "balance": result.balance}
+
+
+@app.route("/gift/card", methods=["GET"])
+def gift_card_status():
+    """給 /gift/done 輪詢用：這筆訂單的卡開出來了嗎？
+
+    「還沒」是正常答案而不是錯誤——導回頁跟綠界的回調是兩條路，誰先到不一定。
+    """
+    if not _payments_ready() or gift_card_service is None:
+        abort(503)
+
+    order_no = (request.args.get("no") or "").strip()
+    if not order_no:
+        return {"error": "缺少訂單編號"}, 400
+
+    try:
+        with get_session() as session:
+            card = gift_card_service.card_for_order_no(session, order_no)
+    except Exception:
+        logger.exception("查詢禮物卡失敗")
+        abort(500)
+
+    if card is None:
+        return {"ready": False}
+
+    return {
+        "ready": True,
+        "points": card.points,
+        "redeemed": card.redeemed,
+        "sent": card.sent,
+        # 已經兌換過就不再回傳卡號：沒有用處，也少一個外流的地方
+        "code": None if card.redeemed else format_gift_code(card.code),
+    }
 
 
 @app.route("/pay/done", methods=["GET", "POST"])
 def pay_done():
     """付款後使用者被導回的頁面。
 
-    刻意不顯示餘額也不查訂單：入帳由回調決定，兩者可能差幾秒，
-    這裡若說「已加值」而回調還沒到，長輩會以為錢丟了。
+    顯示「購買了幾點」但不顯示餘額：購買點數是下單時就定死的（訂單快照），
+    講它安全；餘額由回調決定、可能差幾秒，這裡若搶說「已加值」而回調還沒到，
+    長輩會以為錢丟了——所以只說「會加進帳戶」，不報餘額。
     """
-    return render_template("pay_done.html")
+    order_no = (request.form.get("MerchantTradeNo")
+                or request.args.get("no", "")).strip()
+    points = None
+    if order_no:
+        try:
+            with get_session() as session:
+                order = (session.query(PaymentOrder)
+                         .filter_by(merchant_trade_no=order_no).first())
+                if order is not None:
+                    points = order.points
+        except Exception:
+            logger.exception("查詢付款訂單點數失敗")
+    return render_template("pay_done.html", points=points)
 
 
 def handle_text_message(event):

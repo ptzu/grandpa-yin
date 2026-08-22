@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from linebot.models import FlexSendMessage
+
 from src.core.app_logger import get_logger
 from src.features.base_feature import BaseFeature
 
@@ -51,20 +53,47 @@ class MemberFeature(BaseFeature):
 
         try:
             member = self.member_service.get_or_create_member(user_id, user_name)
-            balance_line = f"您現在有 {member['points']} 點。\n\n" if member else ""
+            points = member['points'] if member else 0
+            packages = self.payment_service.packages()
 
-            plans = "\n".join(
-                f"{pkg.label}　NT${pkg.price_twd}"
-                for pkg in self.payment_service.packages()
+            # 一張卡片：目前點數 + 方案一覽 + 一顆「去加購」按鈕。按鈕帶到單一
+            # 入口（連結裡再問自己用還是送朋友），不在訊息裡放裸連結。
+            plan_rows = [{
+                "type": "box", "layout": "horizontal",
+                "contents": [
+                    {"type": "text", "text": pkg.label, "size": "md",
+                     "weight": "bold", "flex": 0},
+                    {"type": "text", "text": f"NT${pkg.price_twd}", "size": "md",
+                     "align": "end", "color": "#06c755"},
+                ],
+            } for pkg in packages]
+
+            message = FlexSendMessage(
+                alt_text=f"💎 加購點數：您現在有 {points} 點，點這裡選方案",
+                contents={
+                    "type": "bubble",
+                    "body": {
+                        "type": "box", "layout": "vertical", "spacing": "sm",
+                        "contents": [
+                            {"type": "text", "text": "💎 加購點數", "size": "xl",
+                             "weight": "bold"},
+                            {"type": "text", "text": f"您現在有 {points} 點",
+                             "size": "md", "color": "#888888", "margin": "sm"},
+                            {"type": "separator", "margin": "lg"},
+                            {"type": "box", "layout": "vertical", "spacing": "md",
+                             "margin": "lg", "contents": plan_rows},
+                        ],
+                    },
+                    "footer": {
+                        "type": "box", "layout": "vertical",
+                        "contents": [{
+                            "type": "button", "style": "primary", "color": "#06c755",
+                            "action": {"type": "uri", "label": "去加購", "uri": link},
+                        }],
+                    },
+                },
             )
-            response = f"""{balance_line}要加點數，點下面的連結：
-{link}
-
-{plans}
-
-付款完成後點數會自動加進來。"""
-
-            self.publisher.reply_text(reply_token, response, user_id, event)
+            self.publisher.process_reply_message(reply_token, message, user_id, event)
             return "OK"
 
         except Exception:
@@ -106,12 +135,12 @@ class MemberFeature(BaseFeature):
             emoji = status_emoji.get(status, '❓')
             
             status_line = "" if status == "normal" else f"\n狀態：{status_text}"
-            can_top_up = bool(self.payment_service and self.payment_service.topup_link())
-            topup_line = "\n想加點數，輸入「儲值」" if can_top_up else ""
+            hint = self.points_top_up_hint()
+            hint_block = f"\n\n{hint}" if hint else ""
             response = f"""{display_name}，您還有 {points} 點。{status_line}
 
 想看用過哪些，輸入「歷史」
-想看完整資料，輸入「會員」{topup_line}"""
+想看完整資料，輸入「會員」{hint_block}"""
             
             self.publisher.reply_text(reply_token, response, user_id, event)
             return "OK"

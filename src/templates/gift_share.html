@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>付款完成</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    font-family: system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    margin: 0; padding: 1.5rem 1.25rem 3rem;
+    background: #fff; color: #1a1a1a; line-height: 1.7;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 26rem; margin: 0 auto; }
+  h1 { font-size: 1.7rem; margin: 0.5rem 0 0.25rem; }
+  .lead { font-size: 1.15rem; color: #444; margin: 0 0 1.5rem; }
+  .card {
+    margin: 0 0 1.5rem; padding: 1.35rem 1.25rem;
+    border: 2px solid #1a1a1a; border-radius: 0.9rem; text-align: center;
+  }
+  .card .label { font-size: 1rem; color: #666; margin: 0 0 0.4rem; }
+  .code {
+    font-size: 1.8rem; font-weight: 700; letter-spacing: 0.12em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    word-break: break-all;
+  }
+  .btn {
+    display: block; width: 100%; box-sizing: border-box;
+    padding: 1.1rem 1.25rem; margin-bottom: 0.85rem;
+    font-family: inherit; font-size: 1.25rem; text-align: center;
+    text-decoration: none; border-radius: 0.9rem; cursor: pointer;
+    border: 2px solid #06c755; background: #06c755; color: #fff; font-weight: 700;
+  }
+  .btn.secondary { background: #fff; color: #1a1a1a; border-color: #1a1a1a; font-weight: 400; }
+  .btn:active { opacity: 0.75; }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .note { font-size: 1.05rem; color: #666; margin-top: 1.5rem; }
+  .state { font-size: 1.15rem; color: #444; }
+  .msg {
+    display: none; margin: 1rem 0 0; padding: 1rem 1.15rem;
+    font-size: 1.1rem; border-radius: 0.7rem;
+    background: #f2f7f2; color: #1f5a2a; border: 1px solid #b6d6b9;
+  }
+  .msg.show { display: block; }
+  .msg.bad { background: #fdf0f0; color: #8a1f1f; border-color: #e0b4b4; }
+  .hidden { display: none; }
+
+  /* 付款成功視覺：綠色成功圈 + 打勾，讓「付款完成」不只是文字 */
+  .success {
+    width: 4.5rem; height: 4.5rem; margin: 0.5rem auto 1rem;
+    border-radius: 50%; background: #06c755;
+    display: flex; align-items: center; justify-content: center;
+    animation: pop 0.4s ease-out;
+  }
+  .success svg { width: 2.4rem; height: 2.4rem; }
+  .success path {
+    stroke: #fff; stroke-width: 3; fill: none;
+    stroke-linecap: round; stroke-linejoin: round;
+    stroke-dasharray: 30; stroke-dashoffset: 30;
+    animation: draw 0.4s ease-out 0.2s forwards;
+  }
+  @keyframes pop { from { transform: scale(0); } to { transform: scale(1); } }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  h1 { text-align: center; }
+  .lead { text-align: center; }
+  .thanks { text-align: center; font-size: 1.1rem; color: #444; margin: 0 0 0.75rem; }
+  /* 購買明細：讓使用者看到自己買了什麼 */
+  .amount {
+    margin: 0 0 1.5rem; padding: 1.1rem 1.25rem;
+    background: #faf7f2; border-radius: 0.8rem; text-align: center;
+  }
+  .amount .label { font-size: 1rem; color: #888; margin-bottom: 0.2rem; }
+  .amount .pts { font-size: 1.6rem; font-weight: 700; color: #1a1a1a; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="loading">
+    <p class="state">正在讀取禮物卡…</p>
+  </div>
+
+  <div id="ready" class="hidden">
+    <div class="success" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M4 12.5l5 5 11-11"/></svg>
+    </div>
+    <h1>付款完成</h1>
+
+    <div class="amount">
+      <div class="label">🎁 購買內容</div>
+      <div class="pts" id="pts">—</div>
+    </div>
+
+    <p class="thanks">謝謝您的購買 💛</p>
+    <p class="lead">想把這份心意送給誰呢？<br>挑一位朋友，禮物就替您送到</p>
+    <button class="btn" id="share">選擇要送給誰</button>
+    <p class="msg" id="msg"></p>
+  </div>
+
+  <div id="failed" class="hidden">
+    <p class="state" id="failReason">讀不到這張禮物卡。</p>
+    <p class="note">請回到付款完成的畫面，重新選一次朋友。</p>
+  </div>
+</div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+  var LIFF_ID = "{{ liff_id }}";
+  var BASIC_ID = "{{ bot_basic_id }}";
+  var ORDER_NO = "{{ order_no }}";
+
+  var msg = document.getElementById("msg");
+  var card = null;
+
+  function show(id) { document.getElementById(id).classList.remove("hidden"); }
+  function hide(id) { document.getElementById(id).classList.add("hidden"); }
+
+  function say(text, bad) {
+    // Never alert(): a modal inside the LIFF webview blocks everything.
+    msg.textContent = text;
+    msg.classList.toggle("bad", !!bad);
+    msg.classList.add("show");
+  }
+
+  function fail(reason) {
+    if (reason) document.getElementById("failReason").textContent = reason;
+    hide("loading");
+    show("failed");
+  }
+
+  function claimUrl(code) {
+    // Preferred: a LIFF page that identifies the recipient by LINE login and
+    // credits the points on one tap. The code never reaches them — it stays an
+    // internal identifier, so there is nothing to read, copy or type.
+    if (LIFF_ID) {
+      return "https://liff.line.me/" + encodeURIComponent(LIFF_ID) +
+             "?p=claim&code=" + encodeURIComponent(code);
+    }
+    // Fallback when LIFF isn't set up: open the bot's chat with the redeem
+    // message already typed, so they only have to press send.
+    if (BASIC_ID) {
+      return "https://line.me/R/oaMessage/" + encodeURIComponent(BASIC_ID) +
+             "/?" + encodeURIComponent("兌換 " + code);
+    }
+    return null;
+  }
+
+  function giftMessage(code, points) {
+    var url = claimUrl(code);
+
+    // Sized for the person receiving it, who is usually elderly: large type,
+    // one instruction, one button.
+    var body = {
+      type: "box", layout: "vertical", spacing: "md",
+      contents: [
+        { type: "text", text: "🎁", size: "xxl", align: "center" },
+        { type: "text", text: "您收到一份禮物", size: "xl", weight: "bold",
+          align: "center", wrap: true },
+        { type: "text", text: "銀爺爺點數 " + points + " 點", size: "lg",
+          align: "center", color: "#666666", wrap: true }
+      ]
+    };
+
+    if (!url) {
+      // No claim link available (no LIFF configured). Rather than printing a
+      // code for someone to type, fall back to the buyer copying a link.
+      body.contents.push({
+        type: "text", size: "md", align: "center", wrap: true, margin: "lg",
+        text: "請送禮的人重新從聊天室送一次禮物。"
+      });
+      return { type: "flex", altText: "您收到一份銀爺爺點數禮物",
+               contents: { type: "bubble", body: body } };
+    }
+
+    return {
+      type: "flex",
+      altText: "您收到一份銀爺爺點數禮物，點開就能收下",
+      contents: {
+        type: "bubble",
+        body: body,
+        footer: {
+          type: "box", layout: "vertical",
+          contents: [{
+            type: "button", style: "primary", height: "sm", color: "#06c755",
+            action: { type: "uri", label: "收下禮物", uri: url }
+          }, {
+            // No code printed on the card: one tap does everything, and a code
+            // on screen only invites someone to try typing it somewhere.
+            type: "text", text: "點一下就會加進您的帳戶", size: "xs",
+            align: "center", color: "#999999", margin: "md", wrap: true
+          }]
+        }
+      }
+    };
+  }
+
+  function doShare() {
+    var btn = document.getElementById("share");
+    btn.disabled = true;
+
+    if (!liff.isApiAvailable("shareTargetPicker")) {
+      btn.disabled = false;
+      // 分成兩種說法：使用者能自己解決的（不在 LINE 裡開）與只有開發者能解決的
+      // （Console 沒開通）。籠統的一句「不支援」會讓兩邊都卡住。
+      if (!liff.isInClient()) {
+        say("請從 LINE 的聊天室開啟這個連結，才能選擇好友。", true);
+      } else {
+        say("好友選單開不起來，請關掉這頁、回到聊天室重新點一次禮物連結。", true);
+      }
+      return;
+    }
+
+    if (!card) {
+      btn.disabled = false;
+      say("禮物卡還沒讀取完成，請稍等一下再按。", true);
+      return;
+    }
+
+    liff.shareTargetPicker([giftMessage(card.code, card.points)])
+      .then(function (res) {
+        // LINE tells us whether it sent, never who it went to.
+        if (res) {
+          // Sent: lock the button. The card redeems only once, so sending it to
+          // a second person just leaves everyone-but-first confused.
+          btn.disabled = true;
+          btn.textContent = "已經送出";
+          say("已經送出了！朋友點一下卡片就能收下。\n可以關閉這個頁面了。");
+          // Record it so re-opening the link later warns instead of silently
+          // letting the same card go to someone else.
+          fetch("/gift/mark-sent", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ no: ORDER_NO })
+          }).catch(function () {});
+        } else {
+          btn.disabled = false;   // cancelled — let them try again
+          say("沒有送出，您可以再選一次。");
+        }
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        say("送出失敗：" + ((err && (err.message || err.code)) || "未知錯誤") +
+            "，請再點一次「選擇要送給誰」。", true);
+      });
+  }
+
+  function start() {
+    if (!ORDER_NO) { fail("這個連結少了訂單編號。"); return; }
+
+    fetch("/gift/card?no=" + encodeURIComponent(ORDER_NO))
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (!data.ready) { fail("這張禮物卡還在處理中，請稍後再開一次。"); return; }
+        if (data.redeemed) { fail("這張禮物卡已經被兌換了。"); return; }
+
+        card = data;
+        document.getElementById("pts").textContent = "銀爺爺點數 " + data.points + " 點";
+        hide("loading");
+        show("ready");
+        document.getElementById("share").addEventListener("click", doShare);
+
+        if (data.sent) {
+          // Already sent. One card, one recipient — no re-sending, no changing
+          // who it went to. Lock the button and say so.
+          var btn = document.getElementById("share");
+          btn.disabled = true;
+          btn.textContent = "已經送出";
+          say("這份禮物已經送給朋友了，正在等他收下。\n可以關閉這個頁面了。");
+        } else {
+          // First time here: auto-open the picker so the single tap on the
+          // previous page is all that's needed.
+          setTimeout(doShare, 200);
+        }
+      })
+      .catch(function () { fail("讀取禮物卡失敗，請稍後再試。"); });
+  }
+
+  liff.init({ liffId: LIFF_ID })
+    .then(function () {
+      // redirectUri is required, not optional: liff.login() defaults to sending
+      // the user to the LIFF app's Endpoint URL after logging in, and this
+      // service's endpoint is the site root (one LIFF app, two pages that need
+      // it — see LIFF_ENDPOINT_NOTE in payment_service). Without this the user
+      // logs in and lands on the root instead of the page they asked for.
+      if (!liff.isLoggedIn()) { liff.login({ redirectUri: window.location.href }); return; }
+      start();
+    })
+    .catch(function () {
+      fail("請從 LINE 開啟這個連結，才能選擇要送給哪位朋友。");
+    });
+</script>
+</body>
+</html>

@@ -8,20 +8,55 @@
   :root { color-scheme: light; }
   body {
     font-family: system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
-    margin: 0; padding: 2rem 1.5rem; line-height: 1.9;
+    margin: 0; padding: 2rem 1.5rem 3rem; line-height: 1.7;
     color: #1a1a1a; background: #fff;
+    -webkit-text-size-adjust: 100%;
   }
-  .box { max-width: 20rem; margin: 3rem auto; text-align: center; }
-  h1 { font-size: 1.6rem; margin: 0 0 1.2rem; }
-  p { font-size: 1.15rem; margin: 0 0 1rem; }
-  .hint { color: #666; font-size: 1rem; }
+  .box { max-width: 22rem; margin: 2rem auto 0; text-align: center; }
+
+  /* Same success mark as the gift page, so paying feels like one product. */
+  .success {
+    width: 4.5rem; height: 4.5rem; margin: 0.5rem auto 1.25rem;
+    border-radius: 50%; background: #06c755;
+    display: flex; align-items: center; justify-content: center;
+    animation: pop 0.4s ease-out;
+  }
+  .success svg { width: 2.4rem; height: 2.4rem; }
+  .success path {
+    stroke: #fff; stroke-width: 3; fill: none;
+    stroke-linecap: round; stroke-linejoin: round;
+    stroke-dasharray: 30; stroke-dashoffset: 30;
+    animation: draw 0.4s ease-out 0.2s forwards;
+  }
+  @keyframes pop { from { transform: scale(0); } to { transform: scale(1); } }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+
+  h1 { font-size: 1.8rem; margin: 0 0 0.6rem; }
+  p { font-size: 1.2rem; margin: 0 0 0.6rem; }
+  .hint { color: #888; font-size: 1.05rem; margin-top: 1.2rem; }
+  .amount {
+    margin: 1.25rem auto 0.25rem; padding: 1.1rem 1.25rem; max-width: 18rem;
+    background: #faf7f2; border-radius: 0.8rem;
+  }
+  .amount .label { font-size: 1rem; color: #888; margin-bottom: 0.2rem; }
+  .amount .pts { font-size: 1.5rem; font-weight: 700; color: #1a1a1a; }
 </style>
 </head>
 <body>
   <div class="box">
-    <h1>已經收到了</h1>
+    <div class="success" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M4 12.5l5 5 11-11"/></svg>
+    </div>
+    <h1>付款完成</h1>
+    <p>謝謝您的購買 💛</p>
+    {% if points %}
+    <div class="amount">
+      <div class="label">💎 購買內容</div>
+      <div class="pts">銀爺爺點數 {{ points }} 點</div>
+    </div>
+    {% endif %}
     <p>點數會在幾秒內加進您的帳戶。</p>
-    <p class="hint">回到聊天室輸入「點數」就可以確認。</p>
+    <p class="hint">回到聊天室輸入「點數」就可以確認。<br>可以關閉這個頁面了。</p>
   </div>
 </body>
 </html>

@@ -48,6 +48,7 @@ LINE Platform ──► Railway (Flask /webhook, gunicorn -w 2 --threads 8)
 2. **設定環境變數**（Variables，見第四章清單）。
 3. Push 到 `main` 即自動部署（啟動指令見 `Procfile`）。
 4. 將 Railway 網域設為 LINE Webhook：`https://<your-app>.up.railway.app/webhook`，並在 LINE Console 開啟 **Use webhook**。
+   > **Webhook redelivery 維持關閉。** 打開它會讓 LINE 重送失敗的 event，而目前的去重表在記憶體裡、`-w 2` 下兩個 process 各存一份，重送打到另一個就會**重複扣點**。要開之前必須先把去重改成 Postgres `processed_events` 表（見[健檢報告](./HEALTH_CHECK.md)第三章第 6 項）。
 
 > 從零建一套全新的獨立環境（含新的 Supabase 專案）請走**第五章**，那裡有含 Supabase 設定、連線方式、建表與驗收的完整順序。本章只講 Railway 這一側。
 
@@ -74,12 +75,14 @@ Railway 改 Variables **不會**自動重啟舊容器的 process 內快取，改
 | `WELCOME_POINTS` | | **覆寫** `config/settings.yml` 的新會員贈點 |
 | `COLORIZE_COST` / `EDIT_COST` | | **覆寫** `config/settings.yml` 的點數（見下方） |
 | `COLORIZE_MODEL` / `EDIT_MODEL` | | **覆寫** `config/settings.yml` 的模型 ID |
-| `ECPAY_MERCHANT_ID` | | 綠界商店代號。以下四個 `ECPAY_*` **要嘛全設、要嘛全不設**；缺任一個都視為未設定，儲值自動停用，服務其餘部分照常 |
+| `ECPAY_MERCHANT_ID` | | 綠界商店代號。以下四個 `ECPAY_*` **要嘛全設、要嘛全不設**；缺任一個都視為未設定，儲值自動停用，服務其餘部分照常。測試站可直接用綠界公開的測試特店（見 `.env.example`），正式站要到[廠商後台](https://vendor.ecpay.com.tw/)→ 系統開發管理 → 系統介接設定 → 介接資訊 拿 |
 | `ECPAY_HASH_KEY` | | 綠界 HashKey（**密鑰**，只放環境變數，絕不進 `settings.yml`——那個檔案在 git 裡） |
 | `ECPAY_HASH_IV` | | 綠界 HashIV（**密鑰**，同上） |
-| `ECPAY_API_URL` | | 綠界 AioCheckOut 端點；測試站與正式站不同，以綠界官方文件為準 |
-| `LIFF_ID` | | 付款頁的 LIFF ID。沒設的話 `/pay` 回 503，且 bot 不會提「儲值」 |
+| `ECPAY_API_URL` | | AioCheckOut 端點，固定值不必去後台拿：測試站 `https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5`、正式站 `https://payment.ecpay.com.tw/Cashier/AioCheckOut/V5`。**換站時要與上面三個密鑰一起換**，測試密鑰配正式網址會全部驗簽失敗 |
+| `LIFF_ID` | | 付款頁與禮物卡分享頁共用的 LIFF ID。沒設的話 `/pay`、`/gift/share` 回 503，bot 不會提「儲值」，禮物卡也只能手動複製卡號傳。**該 LIFF app 的 Endpoint URL 要填服務根網址**（兩頁共用一個 app，路徑由連結帶），並**開啟 `shareTargetPicker` 權限** |
 | `LINE_LOGIN_CHANNEL_ID` | | 驗證付款頁 ID token 用的 LINE Login channel ID。沒設的話 `/pay/checkout` 一律 401 |
+| `PUBLIC_BASE_URL` | ⭕ | 本服務對外網址（`https://...`，不含結尾斜線）。平常可省略（會從 `X-Forwarded-*` 推得），但**禮物卡需要**：bot 要在 HTTP request 之外把送禮頁網址講出來。沒設的話 bot 完全不提禮物卡（已賣出的卡仍兌換得了）|
+| `LINE_BASIC_ID` | | Bot 的 LINE ID（含 `@`）。禮物卡片裡「點這裡收下」按鈕靠它——長輩點一下就開啟 bot 且兌換訊息已填好。沒設的話卡片改為附卡號與文字說明，長輩得自己輸入「兌換」|
 | `SENTRY_DSN` | | 留空則不啟用 Sentry |
 | `SENTRY_ENVIRONMENT` | | `production` / `staging` |
 | `IMAGE_WORKERS` / `IMAGE_QUEUE_LIMIT` | | 圖片處理併發（預設 4 / 8） |
@@ -239,6 +242,11 @@ python3 -m src.core.settings          # 設定檔正常？印出實際生效的�
 | 再輸入「歷史」 | 看得到剛才那筆扣點紀錄 |
 | 輸入「儲值」 | 有開通金流才會給付款連結；沒開通會明講「還沒開放」 |
 | 走完一次付款 | 幾秒內點數入帳，「歷史」看得到「儲值 N 點（訂單 …）」 |
+| 開 `/gift` 買一張卡 | 不必登入 LINE 就能買；付完顯示卡號（`PUBLIC_BASE_URL` 沒設也能開，只是 bot 不會主動提） |
+| 完成頁點「用 LINE 選家人傳過去」 | 跳出 LINE 原生好友選擇器；挑一個人送出後對方收到卡片（`shareTargetPicker` 沒開通會退回「自己複製卡號」）|
+| 用收到的卡片點「點這裡收下」 | 開啟 bot 且已帶入「兌換 ABCD-1234」，按送出即入帳並跳出收禮通知 |
+| 用那組卡號輸入「兌換」 | 點數入帳，「歷史」看得到「禮物卡兌換 N 點（ABCD-1234）」 |
+| 同一組卡號再兌換一次 | 明講「已經用過了」，餘額不變 |
 
 任一步卡住，對照第七章的事故速查。傳照片沒反應 → 多半是 Storage bucket 名稱或 key 錯（此時服務會退回 base64 模式並在 log 留 warning）。
 
@@ -309,7 +317,7 @@ DATABASE_URL=<線上連線字串> alembic stamp head
 |---|---|---|---|
 | 1 | Bot 完全不回覆 | P0 | 查 Railway crash / LINE Verify / `Invalid signature`(→CHANNEL_SECRET) / Use webhook 開關 |
 | 2 | 回覆很慢、部分沒回 | P1 | 搜 `WORKER TIMEOUT` / `目前使用人數較多`（設計內降級）；尖峰調高 `IMAGE_WORKERS` |
-| 3 | 重複處理 / 重複扣點 | P0 | webhook 去重表在**記憶體**，`-w 2` 跨 process 有缺口；退點要**雙寫** transaction |
+| 3 | 重複處理 / 重複扣點 | P0 | 先確認 Console 的 **Webhook redelivery**：關著就不是 LINE 重送造成的（去重表雖在記憶體、`-w 2` 跨 process 有缺口，但沒有重送就不會被觸發），往用戶連點兩次或程式路徑查；退點要**雙寫** transaction |
 | 4 | 扣點但沒收到圖 | P1 | 查 `usage_logs`：`failed`=已自動退點；只有 `completed`=push 失敗，手動退點 |
 | 5 | DB 連不上 | P1 | Supabase 專案被 **Paused**（免費 7 天）→ Restore；恢復後**要 Restart Railway** |
 | 6 | 連線池耗盡 | P1 | `pg_stat_activity` 查連線；`pg_terminate_backend` 清卡死；根治用 pooler(6543) |
@@ -322,6 +330,8 @@ DATABASE_URL=<線上連線字串> alembic stamp head
 | 15 | OOM | P1 | 調低 `IMAGE_QUEUE_LIMIT` 或加 RAM；善後撈重啟窗內未收圖的退點 |
 | 16 | 付了錢但點數沒進來 | **P0** | 查 `payment_orders`：`status='paid'` 但 `credited_at IS NULL` 就是漏發。先看 `raw_callback` 確認綠界確實回報成功，再用 `scripts/add_points.py` 補點並記錄訂單編號 |
 | 17 | 同一筆重複入帳 | P0 | 理論上被 `merchant_trade_no` 唯一鍵擋住；真發生代表有繞過 `payment_service` 的寫入，比對 `transactions` 與 `payment_orders` 後扣回 |
+| 18 | 買了禮物卡但沒拿到卡號 | **P0** | 查 `gift_cards` 有沒有那筆 `order_id`（用 `payment_orders.merchant_trade_no` 找）。有卡＝只是導回頁沒等到，把 `code` 給客戶即可；沒卡但訂單 `status='paid'` ＝漏開，確認 `raw_callback` 後手動補一列 |
+| 19 | 卡號說已被用過但客戶說沒用 | P1 | `gift_cards.redeemed_by_subject_id` 查是誰兌換的、`redeemed_at` 查何時。多半是家人已代為兌換；確認確實不是本人再議 |
 
 ### 常用除錯 SQL（platform 模式）
 
@@ -393,7 +403,7 @@ SELECT id, 10, 'silver-grandpa', points_balance, '補償（incident YYYY-MM-DD�
 ### 待補強清單（來自事故演練）
 
 1. **`/health` endpoint + 外部監控**（UptimeRobot）——目前掛掉只能靠用戶回報。
-2. **跨 process 的 webhook 去重**——記憶體去重在 `-w 2` 下有缺口，改用 Postgres `processed_events` 表或 Redis。
+2. **跨 process 的 webhook 去重**——記憶體去重在 `-w 2` 下有缺口。**目前 Webhook redelivery 關閉，沒有重送就不會被觸發，優先度低**；代價是失敗的 webhook 不重送＝那則訊息永久消失。想開 redelivery 換取不漏訊息，**先**改成 Postgres `processed_events` 表再開開關（見[健檢報告](./HEALTH_CHECK.md)第三章第 6 項）。
 3. **推送失敗的自動退點**——目前「處理成功但 push 失敗」會白扣點，靠人工補償。
 4. ~~**Supabase connection pooler**~~——✅ 已納入建置步驟（見 5.2，用 Session pooler）。既有環境若仍是直連，改連線字串即可。
 5. **`transactions` 加 `source/created_by`**——帳目稽核分辨寫入來源。

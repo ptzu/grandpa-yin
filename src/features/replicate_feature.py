@@ -97,11 +97,15 @@ class ReplicateImageFeature(BaseFeature):
         member = self.member_service.get_or_create_member(user_id, user_name)
         if member['points'] >= self.required_points:
             return False
+        # 光說「不夠」是死路；同一則訊息就要給出拿到點數的方法
+        hint = self.points_top_up_hint()
+        text = (f"點數不夠喔。\n\n您現在有 {member['points']} 點，"
+                f"這個功能需要 {self.required_points} 點。")
+        if hint:
+            text += f"\n\n{hint}"
         self.publisher.process_reply_message(
             reply_token,
-            TextSendMessage(
-                text=f"點數不夠喔。\n\n您現在有 {member['points']} 點，這個功能需要 {self.required_points} 點。"
-            ),
+            TextSendMessage(text=text),
             user_id,
             event
         )

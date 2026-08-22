@@ -26,6 +26,7 @@ class BaseFeature(ABC):
         self.preview_store = ctx.preview_store
         self.result_archive = ctx.result_archive
         self.payment_service = ctx.payment_service
+        self.gift_card_service = ctx.gift_card_service
         # Set by FeatureRegistry.register(); lets a feature hand off to a sibling
         # (photo_intent -> colorize/edit) without app.py wiring them to each other.
         self.registry = None
@@ -94,6 +95,33 @@ class BaseFeature(ABC):
         """
         return None
     
+    def points_top_up_hint(self) -> str:
+        """怎麼拿到更多點數的提示文字（沒有可用管道時回傳空字串）。
+
+        兩條路：自己儲值（需要金流 + LIFF），或請朋友買禮物卡送（需要金流 +
+        PUBLIC_BASE_URL）。任一條沒備妥就不提那一條——給長輩一個按了沒反應的
+        連結，比不提還糟（同 payment_service 的判斷）。
+
+        放在這裡是因為「點數不夠」會從好幾個地方講出來（查點數、各功能的
+        前置檢查），講法必須一致。
+        """
+        if not self.payment_service:
+            return ""
+
+        if self.payment_service.topup_link():
+            # 指向同一個入口：那一頁會問「自己用還是送朋友」，所以這裡不必
+            # 也不該把兩種買法拆成兩句話
+            return "想要更多點數，輸入「儲值」。"
+
+        # LIFF 沒開通時還有一條路：把送禮頁的網址傳給朋友，請他們幫忙買。
+        # 那頁是一般網頁，朋友用電腦也開得起來。
+        gift_link = self.payment_service.gift_link()
+        if gift_link:
+            return ("想要更多點數，把這個連結傳給朋友，請他們幫您買：\n"
+                    f"{gift_link}")
+
+        return ""
+
     def get_user_name(self, user_id: str) -> str:
         """獲取用戶名稱：優先讀 DB 會員資料，避免每則訊息都呼叫 LINE API"""
         if self.member_service:
