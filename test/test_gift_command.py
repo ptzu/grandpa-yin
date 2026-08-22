@@ -434,11 +434,11 @@ def test_share_page_marks_a_card_sent_after_sending():
     assert "/gift/mark-sent" in html, "送出後要標記已送出"
 
 
-def test_share_page_warns_when_reopened_after_sent():
-    """從提醒連結再進來、卡已送過 → 不自動彈，改提示已送出（仍可補救再送）"""
+def test_share_page_locks_when_reopened_after_sent():
+    """從提醒連結再進來、卡已送過 → 不自動彈、按鈕鎖死。送給誰就是誰的，不能改送"""
     html = (TEMPLATES / "gift_share.html").read_text(encoding="utf-8")
     assert "data.sent" in html, "載入時要看卡是否已送出"
-    assert "再送一次" in html, "已送出時按鈕改為可補救的『再送一次』"
+    assert "再送一次" not in html, "送出即定案，不提供再送"
     assert "已經送給朋友了" in html
 
 

@@ -258,11 +258,12 @@
         document.getElementById("share").addEventListener("click", doShare);
 
         if (data.sent) {
-          // Already sent once and not yet redeemed. Don't auto-launch — the
-          // buyer likely re-opened the reminder link. Tell them it's on its
-          // way, but still allow a re-send in case they picked the wrong person.
-          document.getElementById("share").textContent = "再送一次";
-          say("這份禮物已經送給朋友了，正在等他收下。\n送錯人的話，可以再選一次。");
+          // Already sent. One card, one recipient — no re-sending, no changing
+          // who it went to. Lock the button and say so.
+          var btn = document.getElementById("share");
+          btn.disabled = true;
+          btn.textContent = "已經送出";
+          say("這份禮物已經送給朋友了，正在等他收下。");
         } else {
           // First time here: auto-open the picker so the single tap on the
           // previous page is all that's needed.
