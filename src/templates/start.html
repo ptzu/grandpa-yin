@@ -47,8 +47,11 @@
     transition: transform 0.1s ease;
   }
   .plan:active { transform: scale(0.98); }
-  .plan .pts { font-size: 1.35rem; font-weight: 700; }
-  .plan .pts { color: #1a1a1a; }
+  /* Name on top, point count underneath: the name alone doesn't say what
+     you get. Same stack on phone and desktop. */
+  .plan .info { display: flex; flex-direction: column; align-items: flex-start; }
+  .plan .pts { font-size: 1.35rem; font-weight: 700; color: #1a1a1a; }
+  .plan .amount { font-size: 1.02rem; color: #6b7280; }
   .plan .price {
     font-size: 1.15rem; color: #fff; background: #06c755;
     padding: 0.4rem 0.95rem; border-radius: 999px; white-space: nowrap;
@@ -79,7 +82,10 @@
   <div class="plans" id="plans" data-kind="self">
     {% for pkg in packages %}
     <button class="plan" data-package="{{ pkg.id }}">
-      <span class="pts">{{ pkg.label }}</span>
+      <span class="info">
+        <span class="pts">{{ pkg.label }}</span>
+        <span class="amount">{{ pkg.points }} 點</span>
+      </span>
       <span class="price">NT${{ pkg.price_twd }}</span>
     </button>
     {% endfor %}

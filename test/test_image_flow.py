@@ -6,7 +6,7 @@ branch off it (cancel, swap photo, insufficient points).
 """
 import pytest
 
-from conftest import COLORIZE_COST, EDIT_COST
+from conftest import ANIMATE_COST, COLORIZE_COST, EDIT_COST
 
 CHOICE_BUTTONS = ["📸 幫照片上色", "🎬 讓照片動起來", "🎨 照我說的修改", "❌ 取消"]
 PRESET_BUTTON = "🏖️ 背景換成海灘"
@@ -285,4 +285,4 @@ class TestFeatureEntryPrompt:
     def test_animate_entry_states_choice_and_cost(self, env):
         env.send_text("照片動起來")
         assert "你現在選擇了「照片動起來」" in env.last_text
-        assert "扣 25 點" in env.last_text
+        assert f"扣 {ANIMATE_COST} 點" in env.last_text
