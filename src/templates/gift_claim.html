@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>收下禮物</title>
+<style>
+  /* The reader here is the elder receiving the gift. Everything is one size
+     larger than the buyer-facing pages, and there is exactly one thing to do. */
+  :root { color-scheme: light; }
+  body {
+    font-family: system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    margin: 0; padding: 2rem 1.25rem 3rem;
+    background: #fff; color: #1a1a1a; line-height: 1.8;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 26rem; margin: 0 auto; text-align: center; }
+  .gift { font-size: 4rem; margin: 1rem 0 0.5rem; }
+  h1 { font-size: 1.9rem; margin: 0 0 0.5rem; }
+  .points { font-size: 1.4rem; color: #444; margin: 0 0 2rem; }
+  .btn {
+    display: block; width: 100%; box-sizing: border-box;
+    padding: 1.3rem 1.25rem; margin-bottom: 1rem;
+    font-family: inherit; font-size: 1.45rem; font-weight: 700; text-align: center;
+    border-radius: 0.9rem; cursor: pointer;
+    border: 2px solid #06c755; background: #06c755; color: #fff;
+  }
+  .btn:active { opacity: 0.75; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .state { font-size: 1.25rem; color: #444; }
+  .msg {
+    margin: 1.25rem 0 0; padding: 1.15rem 1.25rem;
+    font-size: 1.2rem; border-radius: 0.7rem; text-align: left;
+    background: #fdf0f0; color: #8a1f1f; border: 1px solid #e0b4b4;
+  }
+  .hidden { display: none; }
+  #addFriend { margin-top: 0.5rem; text-decoration: none; }
+  #backToChat { margin-top: 1rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="loading">
+    <p class="state">請稍等一下…</p>
+  </div>
+
+  <div id="ready" class="hidden">
+    <div class="gift">🎁</div>
+    <h1>您收到一份禮物</h1>
+    <p class="points" id="intro">朋友送了銀爺爺點數給您</p>
+    <button class="btn" id="claim">收下禮物</button>
+  </div>
+
+  <div id="done" class="hidden">
+    <div class="gift">🎉</div>
+    <h1 id="doneTitle">已經收下了</h1>
+    <p class="points" id="doneText"></p>
+
+    <!-- Points land regardless, but a non-friend has no chat to spend them in,
+         and the bot can't notify them. So if they aren't a friend yet, lead
+         with adding the bot; if they are, just send them back to the chat. -->
+    <a class="btn" id="addFriend" href="#" hidden>加銀爺爺好友，開始使用</a>
+    <p class="state" id="backToChat" hidden>回到聊天室就可以開始用了。</p>
+  </div>
+
+  <div id="failed" class="hidden">
+    <p class="msg" id="failText"></p>
+  </div>
+</div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+  var LIFF_ID = "{{ liff_id }}";
+  var CODE = "{{ code }}";
+  var BOT_BASIC_ID = "{{ bot_basic_id }}";
+
+  function show(id) { document.getElementById(id).classList.remove("hidden"); }
+  function hide(id) { document.getElementById(id).classList.add("hidden"); }
+
+  function fail(text) {
+    hide("loading"); hide("ready");
+    document.getElementById("failText").textContent = text;
+    show("failed");
+  }
+
+  function claim() {
+    var btn = document.getElementById("claim");
+    btn.disabled = true;
+    btn.textContent = "處理中…";
+
+    var idToken = liff.getIDToken();
+    if (!idToken) { fail("請從 LINE 重新開啟這個連結。"); return; }
+
+    fetch("/gift/claim/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id_token: idToken, code: CODE })
+    })
+      .then(function (res) {
+        if (res.status === 401) throw new Error("請從 LINE 重新開啟這個連結。");
+        return res.json();
+      })
+      .then(function (body) {
+        if (body.status === "ok") {
+          hide("ready");
+          document.getElementById("doneText").textContent =
+            "朋友送您 " + body.points + " 點，您現在有 " + body.balance + " 點。";
+          show("done");
+          guideNextStep();
+          return;
+        }
+        if (body.status === "already_used") {
+          hide("ready");
+          document.getElementById("doneTitle").textContent = "這份禮物已經收過了";
+          document.getElementById("doneText").textContent =
+            "點數之前就加進帳戶了，不會重複計算。";
+          show("done");
+          return;
+        }
+        fail("這份禮物找不到了，請跟送您禮物的朋友確認。");
+      })
+      .catch(function (err) {
+        fail(err.message || "現在沒辦法收下，請稍後再試一次。");
+      });
+  }
+
+  function guideNextStep() {
+    var add = document.getElementById("addFriend");
+    var back = document.getElementById("backToChat");
+
+    // 加好友連結：加了才有聊天室能用點數，bot 也才推得了通知
+    if (BOT_BASIC_ID) {
+      add.href = "https://line.me/R/ti/p/" + encodeURIComponent(BOT_BASIC_ID);
+    }
+
+    // getFriendship 需要 Login channel 有連結 bot；查不到就保守地兩個都給
+    if (liff.getFriendship) {
+      liff.getFriendship()
+        .then(function (f) {
+          if (f && f.friendFlag) { back.hidden = false; }
+          else if (BOT_BASIC_ID) { add.hidden = false; }
+          else { back.hidden = false; }
+        })
+        .catch(function () {
+          if (BOT_BASIC_ID) { add.hidden = false; } else { back.hidden = false; }
+        });
+    } else if (BOT_BASIC_ID) {
+      add.hidden = false;
+    } else {
+      back.hidden = false;
+    }
+  }
+
+  if (!CODE) {
+    fail("這個連結不完整，請跟送您禮物的朋友要一次。");
+  } else {
+    liff.init({ liffId: LIFF_ID })
+      .then(function () {
+        // redirectUri is required: liff.login() otherwise returns the user to
+        // the LIFF app's Endpoint URL (the site root) instead of this page.
+        if (!liff.isLoggedIn()) { liff.login({ redirectUri: window.location.href }); return; }
+        hide("loading");
+        show("ready");
+        document.getElementById("claim").addEventListener("click", claim);
+      })
+      .catch(function () {
+        fail("請從 LINE 的聊天室開啟這個連結。");
+      });
+  }
+</script>
+</body>
+</html>

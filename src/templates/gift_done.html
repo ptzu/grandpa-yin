@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>付款完成</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    font-family: system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    margin: 0; padding: 1.5rem 1.25rem 3rem;
+    background: #fff; color: #1a1a1a; line-height: 1.7;
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 26rem; margin: 0 auto; }
+  h1 { font-size: 1.7rem; margin: 0.5rem 0 0.25rem; }
+  .lead { font-size: 1.15rem; color: #444; margin: 0 0 1.75rem; }
+  .btn {
+    display: block; width: 100%; box-sizing: border-box;
+    padding: 1.3rem 1.25rem;
+    font-family: inherit; font-size: 1.35rem; font-weight: 700; text-align: center;
+    text-decoration: none; border-radius: 0.9rem; cursor: pointer;
+    border: 2px solid #06c755; background: #06c755; color: #fff;
+  }
+  .btn:active { opacity: 0.75; }
+  .note { font-size: 1.05rem; color: #666; margin-top: 1.75rem; }
+  .state { font-size: 1.15rem; color: #444; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- No LIFF here on purpose. This page is reached by ECPay's redirect, in an
+       external browser where liff.init() would redirect the page away and lose
+       the order. So it's a plain link to the share page via a liff.line.me URL,
+       which LINE opens back inside its in-app browser — there the friend picker
+       and the Flex card work. The card is sent from the share page. -->
+  <!-- Pure transition: usually the auto-jump takes over before this is seen.
+       The button is only for when iOS blocks the gesture-less jump. -->
+  <div id="ready" class="hidden">
+    <p class="lead">正在開啟送禮頁…</p>
+    <a class="btn" id="go" href="#">沒有自動開啟？點這裡</a>
+  </div>
+
+  <div id="waiting">
+    <p class="state">付款完成，正在開啟…</p>
+  </div>
+
+  <div id="failed" class="hidden">
+    <p class="state">還在處理中。</p>
+    <p class="note">
+      銀行的通知有時候會慢一點。請留著這個畫面，過幾分鐘重新整理就會出現；
+      若十分鐘後仍然沒有，請與我們聯絡並提供訂單編號
+      <strong id="orderNo"></strong>。
+    </p>
+  </div>
+</div>
+
+<script>
+  var LIFF_ID = "{{ liff_id }}";
+  var ORDER_NO = "{{ order_no }}";
+
+  function show(id) { document.getElementById(id).classList.remove("hidden"); }
+  function hide(id) { document.getElementById(id).classList.add("hidden"); }
+
+  function ready(data) {
+    hide("waiting");
+    if (data.redeemed) {
+      show("waiting");
+      document.querySelector("#waiting .state").textContent = "這份禮物已經被朋友收下了。";
+      return;
+    }
+    var link = "https://liff.line.me/" + encodeURIComponent(LIFF_ID) +
+               "?p=share&no=" + encodeURIComponent(ORDER_NO);
+    document.getElementById("go").href = link;
+    show("ready");
+
+    // Try to jump into the LIFF context automatically so the card picker pops
+    // without any tap. iOS may block a gesture-less jump to a universal link —
+    // if so, nothing happens here and the button above is the one-tap fallback.
+    window.location.href = link;
+  }
+
+  function poll(attempt) {
+    fetch("/gift/card?no=" + encodeURIComponent(ORDER_NO))
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.ready) { ready(data); return; }
+        if (attempt >= 10) { hide("waiting"); show("failed"); return; }
+        setTimeout(function () { poll(attempt + 1); }, 2000);
+      })
+      .catch(function () {
+        if (attempt >= 10) { hide("waiting"); show("failed"); return; }
+        setTimeout(function () { poll(attempt + 1); }, 2000);
+      });
+  }
+
+  document.getElementById("orderNo").textContent = ORDER_NO;
+  if (ORDER_NO) { poll(0); } else { hide("waiting"); show("failed"); }
+</script>
+</body>
+</html>

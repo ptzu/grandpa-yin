@@ -57,12 +57,14 @@ class MemberFeature(BaseFeature):
                 f"{pkg.label}　NT${pkg.price_twd}"
                 for pkg in self.payment_service.packages()
             )
+            # 一個連結就好：連結裡會問「自己用還是送朋友」，比在訊息裡放兩條
+            # 連結讓長輩自己分辨清楚得多
             response = f"""{balance_line}要加點數，點下面的連結：
 {link}
 
 {plans}
 
-付款完成後點數會自動加進來。"""
+進去之後可以選自己用，或是買來送給朋友。"""
 
             self.publisher.reply_text(reply_token, response, user_id, event)
             return "OK"
@@ -106,12 +108,12 @@ class MemberFeature(BaseFeature):
             emoji = status_emoji.get(status, '❓')
             
             status_line = "" if status == "normal" else f"\n狀態：{status_text}"
-            can_top_up = bool(self.payment_service and self.payment_service.topup_link())
-            topup_line = "\n想加點數，輸入「儲值」" if can_top_up else ""
+            hint = self.points_top_up_hint()
+            hint_block = f"\n\n{hint}" if hint else ""
             response = f"""{display_name}，您還有 {points} 點。{status_line}
 
 想看用過哪些，輸入「歷史」
-想看完整資料，輸入「會員」{topup_line}"""
+想看完整資料，輸入「會員」{hint_block}"""
             
             self.publisher.reply_text(reply_token, response, user_id, event)
             return "OK"

@@ -25,10 +25,12 @@ from src.features.colorize_feature import ColorizeFeature
 from src.features.animate_feature import AnimateFeature
 from src.features.edit_feature import EditFeature
 from src.features.member_feature import MemberFeature
+from src.features.gift_feature import GiftFeature
 from src.features.followup_feature import FollowUpFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
 from src.core.settings import _parse_payments
 from src.services.payment_service import PaymentService
+from src.services import gift_card_service
 
 USER = "U-test-user"
 FAKE_OUTPUT_URL = "https://example.test/output.jpg"
@@ -254,6 +256,31 @@ class FakeMemberService:
         return True
 
 
+class FakeGiftCardService:
+    """In-memory stand-in for GiftCardService's bot-facing half.
+
+    Only `redeem_for_user` is exercised through features; issuing is tested
+    against the real service in test_gift_cards.py.
+    """
+
+    def __init__(self, cards=None):
+        # code (normalised) -> points
+        self.cards = dict(cards or {})
+        self.redeemed = {}
+
+    def redeem_for_user(self, line_uid, raw_code):
+        code = gift_card_service.normalize_code(raw_code)
+        if code is None or (code not in self.cards and code not in self.redeemed):
+            return gift_card_service.RedeemResult(gift_card_service.INVALID, 0, 0, None)
+        if code in self.redeemed:
+            return gift_card_service.RedeemResult(
+                gift_card_service.ALREADY_USED, self.redeemed[code], 0, code)
+
+        points = self.cards.pop(code)
+        self.redeemed[code] = points
+        return gift_card_service.RedeemResult(gift_card_service.OK, points, points, code)
+
+
 # ------------------------------------------------------------- harness
 
 
@@ -380,7 +407,7 @@ def build_payment_service():
 
 
 def build_env(points=100, with_member_feature=False, replicate_fails_with=None,
-              with_payments=False):
+              with_payments=False, with_gift=False, gift_cards=None):
     """Assemble a registry the same way app.py does (photo_intent registered last).
 
     BillingService is the real one — only the systems at the edges are faked.
@@ -392,6 +419,7 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None,
     replicate = FakeReplicateClient(fail_with=replicate_fails_with)
     preview_store = LocalPreviewStore(directory=tempfile.mkdtemp(prefix='gy-preview-test-'))
     result_archive = FakeResultArchive(storage)
+    gift_service = FakeGiftCardService(gift_cards) if with_gift else None
 
     ctx = FeatureContext(
         line=FakeLineClient(),
@@ -404,6 +432,7 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None,
         preview_store=preview_store,
         result_archive=result_archive,
         payment_service=build_payment_service() if with_payments else None,
+        gift_card_service=gift_service,
     )
 
     registry = FeatureRegistry(state_manager)
@@ -414,11 +443,14 @@ def build_env(points=100, with_member_feature=False, replicate_fails_with=None,
     registry.register(FollowUpFeature(ctx))
     if with_member_feature:
         registry.register(MemberFeature(ctx))
+    if gift_service:
+        registry.register(GiftFeature(ctx))
     registry.register(PhotoIntentFeature(ctx))
 
     env = Env(registry, publisher, state_manager, member_service, storage, replicate)
     env.preview_store = preview_store
     env.archive = result_archive
+    env.gift_cards = gift_service
     return env
 
 

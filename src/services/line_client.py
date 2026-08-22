@@ -19,13 +19,13 @@ LOADING_ANIMATION_URL = "https://api.line.me/v2/bot/chat/loading/start"
 LINE_VERIFY_URL = "https://api.line.me/oauth2/v2.1/verify"
 
 
-def verify_id_token(id_token, channel_id, timeout=10):
-    """Verify a LIFF ID token with LINE and return the LINE userId, or None.
+def verify_id_token_claims(id_token, channel_id, timeout=10):
+    """Verify a LIFF ID token with LINE and return its claims, or None.
 
-    The payment page runs in the browser, so it cannot be trusted to say who
-    the user is — a self-declared userId would let anyone place orders against
-    someone else's account. LINE validates the token's signature, audience and
-    expiry for us; `sub` in the response is the userId.
+    A page running in the browser cannot be trusted to say who the user is — a
+    self-declared userId would let anyone act as someone else. LINE validates
+    the token's signature, audience and expiry for us; the response carries
+    `sub` (the userId) and, when the `profile` scope was granted, `name`.
     """
     if not id_token or not channel_id:
         return None
@@ -44,7 +44,13 @@ def verify_id_token(id_token, channel_id, timeout=10):
         logger.warning(f"LINE ID token 驗證未通過：HTTP {response.status_code}")
         return None
 
-    return response.json().get('sub')
+    return response.json()
+
+
+def verify_id_token(id_token, channel_id, timeout=10):
+    """The userId from a verified ID token, or None. See verify_id_token_claims."""
+    claims = verify_id_token_claims(id_token, channel_id, timeout=timeout)
+    return (claims or {}).get('sub')
 
 
 class LineClient:

@@ -73,6 +73,8 @@ class MenuFeature(BaseFeature):
         colorize_cost = get_model_config("colorize").cost
         edit_cost = get_model_config("edit").cost
         animate_cost = get_model_config("animate").cost
+        gift_help = ("\n\n朋友送您點數的話，點一下他傳來的卡片就會自動加進來。"
+                     if self.gift_card_service else "")
         help_message = f"""{user_name}，我會做這三件事：
 
 📸 修復老照片（{colorize_cost} 點）
@@ -87,7 +89,7 @@ class MenuFeature(BaseFeature):
 
 最簡單的用法是直接把照片傳給我，我會問您想做什麼。
 
-想知道還有多少點，輸入「點數」就可以了。"""
+想知道還有多少點，輸入「點數」就可以了。{gift_help}"""
         
         result = self.publisher.process_reply_message(
             reply_token,

@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>加購點數</title>
+<title>送點數給朋友</title>
 <style>
-  /* Sized for elderly users on a phone: large type, large touch targets,
-     high contrast. The desktop view is the same layout, just centred — the
-     page is opened from LINE, so the phone case is the real one. */
+  /* Unlike pay.html, the reader here is the adult child, not the elder — but
+     the layout stays the same shape so both pages feel like one service. One
+     column, centred on desktop, identical on phone and inside the LINE
+     in-app browser. */
   :root { color-scheme: light; }
   body {
     font-family: system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
@@ -17,7 +18,13 @@
   }
   .wrap { max-width: 26rem; margin: 0 auto; }
   h1 { font-size: 1.7rem; margin: 0.5rem 0 0.25rem; }
-  .lead { font-size: 1.15rem; color: #444; margin: 0 0 1.75rem; }
+  .lead { font-size: 1.15rem; color: #444; margin: 0 0 1.5rem; }
+  .steps {
+    margin: 0 0 1.75rem; padding: 1rem 1.15rem;
+    background: #faf7f2; border-radius: 0.7rem; font-size: 1.05rem; color: #444;
+  }
+  .steps ol { margin: 0; padding-left: 1.3rem; }
+  .steps li { margin: 0.35rem 0; }
   .pkg {
     display: flex; align-items: center; justify-content: space-between;
     width: 100%; box-sizing: border-box;
@@ -43,8 +50,16 @@
 </head>
 <body>
 <div class="wrap" id="wrap">
-  <h1>加購點數</h1>
-  <p class="lead">選一個方案，付款完成後點數會自動加進您的帳戶。</p>
+  <h1>送點數給朋友</h1>
+  <p class="lead">幫爸媽買點數，他們就能用銀爺爺修老照片、讓照片動起來。</p>
+
+  <div class="steps">
+    <ol>
+      <li>選一個方案，完成付款</li>
+      <li>用 LINE 選一位朋友送出禮物</li>
+      <li>朋友點一下「收下禮物」，點數就進他的帳戶</li>
+    </ol>
+  </div>
 
   {% for pkg in packages %}
   <button class="pkg" data-package="{{ pkg.id }}">
@@ -55,17 +70,18 @@
 
   <p class="msg" id="msg"></p>
 
-  <p class="note">付款由綠界科技處理，本服務不會看到您的信用卡資料。</p>
+  <p class="note">
+    卡片沒有使用期限，點數不會過期。<br>
+    付款由綠界科技處理，本服務不會看到您的信用卡資料。
+  </p>
 </div>
 
-<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script>
-  var LIFF_ID = "{{ liff_id }}";
   var wrap = document.getElementById("wrap");
   var msg = document.getElementById("msg");
 
   function showError(text) {
-    // Never use alert(): a modal dialog inside LIFF blocks the whole webview.
+    // Never use alert(): a modal dialog inside the LINE webview blocks it.
     msg.textContent = text;
     msg.classList.add("show");
     wrap.classList.remove("busy");
@@ -91,16 +107,10 @@
     msg.classList.remove("show");
     wrap.classList.add("busy");
 
-    var idToken = liff.getIDToken();
-    if (!idToken) {
-      showError("請重新從 LINE 開啟這個頁面。");
-      return;
-    }
-
-    fetch("/pay/checkout", {
+    fetch("/gift/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id_token: idToken, package_id: packageId })
+      body: JSON.stringify({ package_id: packageId })
     })
       .then(function (res) {
         return res.json().then(function (body) {
@@ -112,22 +122,9 @@
       .catch(function (err) { showError(err.message); });
   }
 
-  liff.init({ liffId: LIFF_ID })
-    .then(function () {
-      // redirectUri is required, not optional: liff.login() defaults to sending
-      // the user to the LIFF app's Endpoint URL after logging in, and this
-      // service's endpoint is the site root (one LIFF app, two pages that need
-      // it — see LIFF_ENDPOINT_NOTE in payment_service). Without this the user
-      // logs in and lands on the root instead of the page they asked for.
-      if (!liff.isLoggedIn()) { liff.login({ redirectUri: window.location.href }); return; }
-      document.querySelectorAll(".pkg").forEach(function (btn) {
-        btn.addEventListener("click", function () { buy(btn.dataset.package); });
-      });
-    })
-    .catch(function () {
-      showError("頁面載入失敗，麻煩從 LINE 的聊天室重新點一次連結。");
-      document.querySelectorAll(".pkg").forEach(function (b) { b.disabled = true; });
-    });
+  document.querySelectorAll(".pkg").forEach(function (btn) {
+    btn.addEventListener("click", function () { buy(btn.dataset.package); });
+  });
 </script>
 </body>
 </html>

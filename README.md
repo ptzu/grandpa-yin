@@ -24,6 +24,7 @@
 | 照片動起來 | `照片動起來` | 傳圖 → 確認後產生約 5 秒微動影片 | 25（可設定）|
 | 做完的下一步 | **成品後的按鈕** | 拿剛做好的照片直接做成影片或再修一次，不必重傳 | 依接手的功能 |
 | 會員／點數 | `會員`、`點數`、`歷史` | 查詢點數餘額與交易記錄 | — |
+| 兌換禮物卡 | `兌換` | 輸入家人買給他的卡號，點數入帳 | — |
 
 > 指令刻意只留單一寫法（一個功能一個詞），不做同義詞比對；長輩主要靠 Quick Reply 按鈕操作。清單見 `src/features/feature_registry.py` 的 `GLOBAL_COMMANDS`，`test/test_commands.py` 有把關。
 
@@ -34,6 +35,7 @@
 - **主要入口是「直接傳照片」**：長輩的心智模型是「處理這張照片」而不是「進入某個功能」。傳統的「先打指令再傳圖」路徑同時保留。
 - **做完不會斷線**：成品後面附一排「還要再做點什麼嗎」的按鈕，成品本身就是下一次的輸入（上色完可以直接做成影片）。輸出影片的功能不給（影片餵不回圖片模型），群組聊天也不給。
 - 圖片編輯全程可用 Quick Reply 完成（免打字），且**確認之後才扣點**，在那之前可隨時取消或換圖。
+- **禮物卡讓「付錢的人」和「用的人」分開**：子女在網頁上買（不必登入 LINE、電腦也能買），拿到一組卡號傳給長輩，長輩輸入「兌換」即可入帳。長輩過不了金流那關是這個產品最大的付費障礙，這條路繞過它。
 
 ## 開啟測試環境
 
@@ -90,6 +92,7 @@ Webhook **網址**由腳本自動設定，但以下幾項是 Console 專屬、AP
 - **開啟「Use webhook」** — API 只能設網址，這個「是否真的把訊息送到 webhook」的開關要手動打開（打開後就一直有效）。
 - **關閉「Auto-reply messages」** — 否則 LINE 官方罐頭回覆會插嘴。
 - **加測試 Bot 為好友** — 掃 Console 的 QR code，才能對它傳訊息測試。
+- **Webhook redelivery 維持關閉**（預設就是關的，別順手打開）— 打開會讓 LINE 重送失敗的 event，而目前的去重表在記憶體裡，`-w 2` 下會漏擋、重複扣點。原因與開啟前提見[部署文件](docs/DEPLOYMENT.md)。
 
 設定完後，日常只要跑第 5 步即可，網址每次自動更新，不必再碰 Console。
 > 未設 `NGROK_DOMAIN` 時 ngrok 為隨機網址，重跑腳本會變（腳本會自動重設 webhook）；設了固定網域則永久不變。
@@ -120,7 +123,7 @@ Webhook **網址**由腳本自動設定，但以下幾項是 Console 專屬、AP
 schema 分兩層、各自管理：
 
 - **共用層 `public.*`**（accounts / transactions / linked_identities）由 Altide 的 `altide-landing-page/supabase/schema.sql` 管理（含 `auth.*` / `storage.*` 依賴，僅適用於 Supabase）。本專案**不碰**。
-- **產品層 `grandpa_yin.*`**（bot_sessions / usage_logs / user_profiles）由本專案的 **Alembic** 管理，migration 檔在 `alembic/versions/`。
+- **產品層 `grandpa_yin.*`**（bot_sessions / usage_logs / user_profiles / payment_orders / gift_cards）由本專案的 **Alembic** 管理，migration 檔在 `alembic/versions/`。
 
 每次部署，Railway 的 `preDeployCommand`（見 `railway.json`）會自動執行 `alembic upgrade head`，把 `grandpa_yin.*` 的 schema 更新到最新；失敗則中止部署（不會帶著壞 schema 上線）。
 
@@ -168,6 +171,7 @@ src/                      ── 核心程式碼
     photo_intent_feature.py  圖片路由 catch-all：先傳圖再問意圖
     animate_feature.py    照片動起來（唯一輸出影片的功能）
     menu / colorize / edit / member_feature.py
+    gift_feature.py       禮物卡兌換的對話（「兌換」→ 問卡號 → 入帳＋收禮通知）
     replicate_feature.py  Replicate 圖片功能的共用對話面
   services/               外部系統與領域狀態的封裝
     line_client.py        LINE 收訊側（下載圖片、查名稱、載入動畫）
@@ -178,12 +182,13 @@ src/                      ── 核心程式碼
     user_state_manager.py 對話狀態機（grandpa_yin.bot_sessions）
     member_service.py     會員服務層（點數、交易）
     member_directory.py   用名字／LINE userId 找會員（管理腳本用，唯讀）
-    payment_service.py    儲值：建單 → 綠界回調 → 只發一次點
+    payment_service.py    儲值：建單 → 綠界回調 → 只發一次點／只開一張卡
+    gift_card_service.py  禮物卡：開卡與兌換（卡號產生、正規化、只兌換一次）
     ecpay_client.py       綠界 CheckMacValue 產生與驗證（不連網）
     storage_service.py    Supabase Storage（圖片暫存）
     account_backend.py    AccountBackend port：standalone / platform 雙模式
   models/                 SQLAlchemy 模型（public.* 共用層 + grandpa_yin.* 產品層）
-  templates/              付款頁與付款完成頁（Flask 樣板，只有儲值流程用到）
+  templates/              付款／送禮／分享／完成頁（Flask 樣板，只有金流相關流程用到）
 
 config/settings.yml       模型、點數、贈點、模型輸入欄位對應（部署前自動驗證）
 start_local_server.sh     本地一鍵啟動（Flask + ngrok + 自動設定 webhook）
@@ -238,6 +243,44 @@ payments:                       # 整段拿掉 = 關閉儲值
 
 **金流與 LIFF 少了任何一半，bot 就完全不提儲值**：選單不出現加購按鈕、「點數」不提示、
 輸入「儲值」會明講「還沒開放」。給長輩一個按了沒反應的連結，比不提還糟。
+
+### 禮物卡（家人買、長輩兌換）
+
+長輩過不了金流那一關，是這個產品最大的付費障礙——所以**買的人可以不是用的人**：
+
+```
+子女開 /gift（一般網頁，不必登入 LINE）→ 選方案 → 綠界付款 → 拿到卡號
+  → 「用 LINE 選家人傳過去」→ LINE 原生好友選擇器挑人 → 卡片送達
+長輩收到卡片 → 點一下 → bot 開啟且訊息已填好 → 按送出
+  → 點數入帳，bot 跳出「🎁 您收到一份禮物」
+```
+
+長輩全程**零打字**。不想用選擇器（或在電腦上付款）也可以複製卡號自己傳，
+長輩再輸入「兌換」手動貼上。
+
+- **購買頁刻意不走 LIFF**：買的人多半是子女，可能坐在電腦前、甚至不是 LINE 用戶。不記名的卡不需要知道買家是誰，多一道 LINE 登入只會多一個放棄點。分享頁（`/gift/share`）才是 LIFF——只有那一步需要 LINE。
+- **「選好友送出」用 `liff.shareTargetPicker`，不是我們自己做的選單**：LINE **沒有**讀取好友清單的 API，挑中的是誰我們自始至終不會知道，訊息也是由買家自己的帳號送出的。這是 LINE 的隱私設計，繞不過去——能做的就是把卡片組好交給 LINE 的原生選擇器。
+- **分享是獨立一頁，不是付款完成頁的一部分**：綠界的付款流程會把瀏覽器帶離本站再帶回來，LIFF 的執行環境不保證撐得過那一趟。獨立一頁等於重新啟動一次 LIFF，也讓買家能在電腦上付完款、改用手機開連結分享。
+- **兌換深連結只能出現在「送出去的卡片」裡，不能出現在買家自己看的頁面上**：那個連結會開啟 bot 並帶入兌換訊息，放在完成頁等於請買家把禮物兌換給自己。`test_gift_command.py` 有測試釘住這件事。
+- **卡只在驗過簽章的綠界回調裡開立**，跟發點數同一條路徑、同一個 `credited_at` 保護；重送回調不會多開一張卡（`gift_cards.order_id` 唯一）。
+- **兌換只會成功一次**：`code` 唯一鍵 + 兌換時鎖列 + `redeemed_at`，不靠記憶體，多 worker 也擋得住。
+- **卡號用 Crockford base32**（沒有 I/L/O/U），輸入時大小寫、空白、減號都可以，打成 I/L/O 也會自動當成 1/0——打字的人常常是 80 歲、對著孫子傳來的截圖看。
+- **卡不設有效期**：台灣商品禮券不得記載使用期限，點數卡適不適用有灰色地帶，保守處理的成本很低。
+- 兌換只需要資料庫，**與金流是否開著無關**：關掉金流之後，已經賣出去的卡還是兌換得了。
+
+需要的環境變數：
+
+| 變數 | 沒設會怎樣 |
+|---|---|
+| `PUBLIC_BASE_URL` | bot 完全不提禮物卡（它在 HTTP request 之外組訊息，沒有這個就拼不出送禮頁網址）。已賣出的卡仍兌換得了 |
+| `LIFF_ID` | `/gift/share` 回 503，完成頁不出現「用 LINE 選家人傳過去」，只能複製卡號手動傳 |
+| `LINE_BASIC_ID` | 卡片裡沒有「點這裡收下」按鈕，改為附上卡號與文字說明（長輩得自己輸入「兌換」）|
+
+> `LIFF_ID` 與付款頁共用同一個 LIFF app。因為一個 LIFF app 只能設一個 Endpoint URL，而這裡有
+> 兩頁要在 LINE 裡開，所以 **Console 的 Endpoint URL 要填服務根網址**（`https://<app>/`），
+> 路徑由連結自己帶：付款是 `liff.line.me/<LIFF_ID>/pay`，分享是
+> `liff.line.me/<LIFF_ID>/gift/share?no=<訂單編號>`。Endpoint 若填成 `.../pay`，分享連結會開到
+> 付款頁去。另外要在該 LIFF app 開啟 **`shareTargetPicker`** 權限，否則分享頁會退回「自己複製卡號」。
 
 換模型時**光改 `model` 不夠**：不同模型的欄位名稱不一樣（`nano-banana` 的圖片欄位叫 `image_input` 且吃陣列，`restore-image` 叫 `input_image` 吃單值），`input` 區段要一起調。檔案裡的註解附了幾個常用模型的對應可直接抄。
 

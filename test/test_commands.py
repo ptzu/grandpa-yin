@@ -9,7 +9,7 @@ from conftest import build_env
 from src.features.feature_registry import GLOBAL_COMMANDS
 
 TRIGGERS = ["修復老照片", "圖片編輯", "照片動起來"]
-GLOBALS = ["點數", "歷史", "會員", "儲值", "功能", "使用說明"]
+GLOBALS = ["點數", "歷史", "會員", "儲值", "兌換", "功能", "使用說明"]
 
 
 class TestCanonicalSet:
@@ -24,7 +24,7 @@ class TestCanonicalSet:
 
     @pytest.mark.parametrize("cmd", GLOBALS)
     def test_every_global_command_responds(self, cmd):
-        env = build_env(with_member_feature=True)
+        env = build_env(with_member_feature=True, with_gift=True)
         env.send_text(cmd)
         assert env.messages, f"「{cmd}」應該要有回應"
 

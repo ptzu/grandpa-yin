@@ -40,3 +40,5 @@ class FeatureContext:
     result_archive: Optional[object] = None
     # Top-up; None (or disabled) means the bot simply doesn't offer it
     payment_service: Optional[object] = None
+    # Gift card redemption; None means the bot can't redeem (no database)
+    gift_card_service: Optional[object] = None
