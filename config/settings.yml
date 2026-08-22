@@ -35,7 +35,7 @@ features:
   # P圖大神：傳圖 → 選（或打）修改描述 → 確認後扣點
   edit:
     model: google/nano-banana-2
-    cost: 5
+    cost: 20
     loading_seconds: 45
     input:
       image_field: image_input
@@ -52,7 +52,7 @@ features:
   # 所以寧可動得少也不能壞。想調整動作幅度就改這段文字，不必改程式碼。
   animate:
     model: prunaai/p-video
-    cost: 25
+    cost: 50
     loading_seconds: 60
     input:
       image_field: image
@@ -88,7 +88,7 @@ features:
   # 日期，生成式模型很容易把字重寫錯，而那往往是照片的歷史核心。
   colorize:
     model: google/nano-banana-2
-    cost: 10
+    cost: 25
     loading_seconds: 30
     input:
       image_field: image_input
@@ -113,7 +113,7 @@ features:
 members:
   # 新用戶加好友時贈送的點數。設 0 表示不送。
   # 同一個帳號只會發一次（解除封鎖再加回來不會重複領）。
-  welcome_points: 50
+  welcome_points: 100
 
 # ══════════════════════════════════════════════════════════════
 # 儲值（點數包）
@@ -138,18 +138,22 @@ members:
 payments:
   provider: ecpay
   packages:
-    - id: s
-      points: 100
-      price_twd: 100
-      label: 100 點
-    - id: m
-      points: 300
-      price_twd: 250
-      label: 300 點
-    - id: l
-      points: 600
-      price_twd: 450
-      label: 600 點
+    - id: trial
+      points: 400
+      price_twd: 149
+      label: 體驗包
+    - id: pop
+      points: 850
+      price_twd: 299
+      label: 人氣包
+    - id: value
+      points: 1500
+      price_twd: 499
+      label: 超值包
+    - id: family
+      points: 3400
+      price_twd: 1088
+      label: 家庭包
 
 # ══════════════════════════════════════════════════════════════
 # 其他可用的模型（想換時參考，欄位對應已附上）
