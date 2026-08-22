@@ -92,6 +92,7 @@ class FakePublisher:
             "text": getattr(message, "text", None),
             "alt_text": getattr(message, "alt_text", None),
             "type": type(message).__name__,
+            "message": message,
             "quick_reply": labels,
             # 媒體訊息指向哪裡，決定用戶下個月回頭看還在不在
             "media_url": getattr(message, "original_content_url", None),

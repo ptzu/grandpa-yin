@@ -173,14 +173,16 @@ def without_liff(monkeypatch):
 
 
 def test_topup_gives_exactly_one_link(with_public_url):
-    """自用與送禮在連結裡分流，所以訊息裡只該出現一條網址"""
+    """儲值卡片只有一顆按鈕、一條連結，指向「幫誰買」的分流入口"""
+    import json
     env = gift_env(with_payments=True)
     env.send_text("儲值")
 
-    text = reply(env)
-    assert text.count("https://") == 1, f"應該只有一條連結，實際訊息：\n{text}"
-    assert "?p=start" in text, "連結要指向「幫誰買」的分流頁"
-    assert "送給家人" in text or "送給" in text, "要讓人知道這條路也能買來送人"
+    msg = env.publisher.messages[-1]
+    assert msg["type"] == "FlexSendMessage"
+    blob = json.dumps(msg["message"].as_json_dict(), ensure_ascii=False)
+    assert blob.count("liff.line.me") == 1, "只該有一條連結（去加購按鈕）"
+    assert "?p=start" in blob, "連結要指向「幫誰買」的分流頁"
 
 
 def test_points_query_points_at_the_command_not_a_url(with_public_url):

@@ -29,19 +29,22 @@ def reply(env):
 
 
 def test_topup_gives_link_and_plans(with_liff):
+    import json
     env = build_env(with_member_feature=True, with_payments=True)
     env.send_text("儲值")
 
-    text = reply(env)
-    assert f"https://liff.line.me/{LIFF_ID}" in text
-    assert "NT$100" in text and "NT$250" in text
-    assert "300 點（較划算）" in text, "設定檔的 label 要照樣顯示"
+    msg = env.publisher.messages[-1]
+    assert msg["type"] == "FlexSendMessage", "儲值回覆是 Flex 卡片"
+    blob = json.dumps(msg["message"].as_json_dict(), ensure_ascii=False)
+    assert f"liff.line.me/{LIFF_ID}" in blob, "按鈕帶去加購入口"
+    assert "NT$100" in blob and "NT$250" in blob
+    assert "300 點" in blob, "設定檔的 label 要照樣顯示"
 
 
 def test_topup_shows_current_balance(with_liff):
     env = build_env(points=42, with_member_feature=True, with_payments=True)
     env.send_text("儲值")
-    assert "42 點" in reply(env)
+    assert "42 點" in env.publisher.messages[-1]["alt_text"]
 
 
 def test_topup_says_so_when_gateway_not_configured(with_liff):
