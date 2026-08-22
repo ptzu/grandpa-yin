@@ -799,11 +799,21 @@ def gift_card_status():
     try:
         with get_session() as session:
             card = gift_card_service.card_for_order_no(session, order_no)
+            # 卡還沒開時要能分辨「回調還沒到」與「付款失敗」——前者該繼續等，
+            # 後者該叫用戶重刷。差別只有訂單狀態知道。
+            order_status = None
+            if card is None:
+                order = (session.query(PaymentOrder)
+                         .filter_by(merchant_trade_no=order_no).first())
+                order_status = order.status if order is not None else None
     except Exception:
         logger.exception("查詢禮物卡失敗")
         abort(500)
 
     if card is None:
+        # 付款失敗是終局，回 failed 讓前端停止空轉、直接請用戶重刷
+        if order_status == "failed":
+            return {"ready": False, "failed": True}
         return {"ready": False}
 
     return {
@@ -827,6 +837,10 @@ def pay_done():
     order_no = (request.form.get("MerchantTradeNo")
                 or request.args.get("no", "")).strip()
     points = None
+    # 綠界不論付款成功或失敗都會把用戶導回這一頁，所以不能假設「來到這頁＝
+    # 已付款」。狀態直接以訂單為準：paid＝成功、failed＝刷卡被拒（沒扣款）、
+    # 其餘（pending／查無）＝回調還沒到，顯示處理中而不謊稱完成。
+    status = "pending"
     if order_no:
         try:
             with get_session() as session:
@@ -834,9 +848,10 @@ def pay_done():
                          .filter_by(merchant_trade_no=order_no).first())
                 if order is not None:
                     points = order.points
+                    status = order.status
         except Exception:
-            logger.exception("查詢付款訂單點數失敗")
-    return render_template("pay_done.html", points=points)
+            logger.exception("查詢付款訂單狀態失敗")
+    return render_template("pay_done.html", points=points, status=status)
 
 
 def handle_text_message(event):

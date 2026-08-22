@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>付款完成</title>
+<title>付款結果</title>
 <style>
   :root { color-scheme: light; }
   body {
@@ -46,13 +46,20 @@
     <p class="state">付款完成，正在開啟…</p>
   </div>
 
-  <div id="failed" class="hidden">
+  <!-- 逾時未到：回調可能只是慢，引導等待／重整 -->
+  <div id="timeout" class="hidden">
     <p class="state">還在處理中。</p>
     <p class="note">
       銀行的通知有時候會慢一點。請留著這個畫面，過幾分鐘重新整理就會出現；
       若十分鐘後仍然沒有，請與我們聯絡並提供訂單編號
       <strong id="orderNo"></strong>。
     </p>
+  </div>
+
+  <!-- 付款失敗：終局，引導重刷而不是重整（重整不會讓失敗變成功） -->
+  <div id="failed" class="hidden">
+    <p class="state">這次沒有付款成功。</p>
+    <p class="note">沒有向您收款，麻煩回到聊天室重新買一次。</p>
   </div>
 </div>
 
@@ -86,17 +93,19 @@
       .then(function (res) { return res.json(); })
       .then(function (data) {
         if (data.ready) { ready(data); return; }
-        if (attempt >= 10) { hide("waiting"); show("failed"); return; }
+        // 付款失敗是終局，別再空轉——直接請用戶重刷
+        if (data.failed) { hide("waiting"); show("failed"); return; }
+        if (attempt >= 10) { hide("waiting"); show("timeout"); return; }
         setTimeout(function () { poll(attempt + 1); }, 2000);
       })
       .catch(function () {
-        if (attempt >= 10) { hide("waiting"); show("failed"); return; }
+        if (attempt >= 10) { hide("waiting"); show("timeout"); return; }
         setTimeout(function () { poll(attempt + 1); }, 2000);
       });
   }
 
   document.getElementById("orderNo").textContent = ORDER_NO;
-  if (ORDER_NO) { poll(0); } else { hide("waiting"); show("failed"); }
+  if (ORDER_NO) { poll(0); } else { hide("waiting"); show("timeout"); }
 </script>
 </body>
 </html>
