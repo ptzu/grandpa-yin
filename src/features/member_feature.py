@@ -119,13 +119,20 @@ class MemberFeature(BaseFeature):
 
             # 一張卡片：目前點數 + 方案一覽 + 一顆「去加購」按鈕。按鈕帶到單一
             # 入口（連結裡再問自己用還是送朋友），不在訊息裡放裸連結。
+            # Each row shows the point count under the package name: the name
+            # alone ("體驗包") says nothing about what you actually get.
             plan_rows = [{
-                "type": "box", "layout": "horizontal",
+                "type": "box", "layout": "horizontal", "alignItems": "center",
                 "contents": [
-                    {"type": "text", "text": pkg.label, "size": "md",
-                     "weight": "bold", "flex": 0},
+                    {"type": "box", "layout": "vertical", "flex": 1,
+                     "contents": [
+                        {"type": "text", "text": pkg.label, "size": "md",
+                         "weight": "bold"},
+                        {"type": "text", "text": f"{pkg.points} 點", "size": "sm",
+                         "color": "#888888"},
+                     ]},
                     {"type": "text", "text": f"NT${pkg.price_twd}", "size": "md",
-                     "align": "end", "color": "#06c755"},
+                     "align": "end", "color": "#06c755", "flex": 0},
                 ],
             } for pkg in packages]
 

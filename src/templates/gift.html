@@ -36,7 +36,11 @@
   }
   .pkg:active { background: #f0f0f0; }
   .pkg:disabled { opacity: 0.45; cursor: default; }
-  .pkg .points { font-weight: 700; }
+  /* Name on top, point count underneath: the name alone doesn't say what
+     you get. Same stack on phone and desktop. */
+  .pkg .points { display: flex; flex-direction: column; align-items: flex-start; }
+  .pkg .points .name { font-weight: 700; }
+  .pkg .points .pts { font-size: 1.05rem; color: #666; }
   .pkg .price { font-size: 1.25rem; white-space: nowrap; }
   .note { font-size: 1.05rem; color: #666; margin-top: 1.75rem; }
   .msg {
@@ -63,7 +67,10 @@
 
   {% for pkg in packages %}
   <button class="pkg" data-package="{{ pkg.id }}">
-    <span class="points">{{ pkg.label }}</span>
+    <span class="points">
+      <span class="name">{{ pkg.label }}</span>
+      <span class="pts">{{ pkg.points }} 點</span>
+    </span>
     <span class="price">NT${{ pkg.price_twd }}</span>
   </button>
   {% endfor %}
