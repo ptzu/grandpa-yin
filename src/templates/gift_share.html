@@ -224,7 +224,7 @@
           // a second person just leaves everyone-but-first confused.
           btn.disabled = true;
           btn.textContent = "已經送出";
-          say("已經送出了！朋友點一下卡片就能收下。");
+          say("已經送出了！朋友點一下卡片就能收下。\n可以關閉這個頁面了。");
           // Record it so re-opening the link later warns instead of silently
           // letting the same card go to someone else.
           fetch("/gift/mark-sent", {
@@ -265,7 +265,7 @@
           var btn = document.getElementById("share");
           btn.disabled = true;
           btn.textContent = "已經送出";
-          say("這份禮物已經送給朋友了，正在等他收下。");
+          say("這份禮物已經送給朋友了，正在等他收下。\n可以關閉這個頁面了。");
         } else {
           // First time here: auto-open the picker so the single tap on the
           // previous page is all that's needed.
