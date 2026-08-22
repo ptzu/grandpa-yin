@@ -153,8 +153,6 @@ class TestThroughTheEditFeature:
         env.send_image()
         env.send_text("照我說的修改")
         env.send_text("加上彩虹")
-        env.reset()
-        env.send_text("確定開始")
 
         assert env.member.points == 100, "扣了又退，餘額應回到原點"
         assert env.member.refunds and env.member.refunds[0]["feature"] == "edit"

@@ -260,7 +260,6 @@ class TestConfigReachesTheModelCall:
         env.send_image()
         env.send_text("照我說的修改")
         env.send_text("加上彩虹")
-        env.send_text("確定開始")
 
         call = env.replicate.calls[0]
         assert call["model"] == "someone/custom-editor"
@@ -287,7 +286,6 @@ class TestConfigReachesTheModelCall:
         env.send_image()
         env.send_text("照我說的修改")
         env.send_text("加上彩虹")
-        env.send_text("確定開始")
 
         assert env.member.deductions[0]["amount"] == 21
 
