@@ -183,7 +183,7 @@ class TestRoutingIsNotHijacked:
         colorize_a_photo(env)
         env.reset()
 
-        env.send_text("點數")
+        env.send_text("會員中心")
 
         assert "點" in env.last_text
 

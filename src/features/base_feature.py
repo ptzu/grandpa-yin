@@ -1,6 +1,10 @@
 import base64
 from abc import ABC, abstractmethod
+from linebot.models import (
+    QuickReply, QuickReplyButton, MessageAction, CameraAction, CameraRollAction,
+)
 from src.core.app_logger import get_logger
+from src.services.display_name import resolve_display_name, FALLBACK_NAME
 from .context import FeatureContext
 
 logger = get_logger("feature")
@@ -139,15 +143,26 @@ class BaseFeature(ABC):
 
     def get_user_name(self, user_id: str) -> str:
         """獲取用戶名稱：優先讀 DB 會員資料，避免每則訊息都呼叫 LINE API"""
-        if self.member_service:
-            try:
-                member = self.member_service.get_member_info(user_id)
-                if member and member.get('display_name') and member['display_name'] != '使用者':
-                    return member['display_name']
-            except Exception as e:
-                logger.warning(f"讀取會員名稱失敗：{str(e)}")
+        return resolve_display_name(user_id, self.member_service, self.line) or FALLBACK_NAME
 
-        return self.line.get_display_name(user_id) or "使用者"
+    def photo_upload_quick_reply(self, cancel_text: str = None) -> QuickReply:
+        """「請傳照片」提示用的 Quick Reply：直接開相機／相簿。
+
+        CameraAction / CameraRollAction 讓長輩按一顆按鈕就拍照或選照片，不必
+        自己找輸入框旁的「＋」。這兩顆只在手機版 LINE 顯示（桌面版會自動隱藏，
+        屬 LINE client 行為）；取消鈕是一般 MessageAction，各版本都看得到。
+
+        cancel_text 給了才附取消鈕——沒有取消流程的功能（colorize）就不要放，
+        免得按了沒反應。
+        """
+        # CameraAction / CameraRollAction 自帶相機／圖片圖示，label 不再加 emoji
+        items = [
+            QuickReplyButton(action=CameraAction(label="拍照")),
+            QuickReplyButton(action=CameraRollAction(label="選照片")),
+        ]
+        if cancel_text:
+            items.append(QuickReplyButton(action=MessageAction(label="❌ 取消", text=cancel_text)))
+        return QuickReply(items=items)
     
     def get_user_id(self, event: dict) -> str:
         """從 event 中獲取用戶 ID"""

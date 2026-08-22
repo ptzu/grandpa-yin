@@ -1,3 +1,5 @@
+from sqlalchemy import func
+
 from src.core.app_logger import get_logger
 from src.models.database import get_session
 from src.models.grandpa_yin_profile import GrandpaYinProfile
@@ -232,6 +234,23 @@ class MemberService:
                 session.rollback()
                 logger.exception(f"退還點數失敗: {user_id}")
                 return False
+
+    def get_works_summary(self, user_id):
+        """各功能已完成的作品數 {feature_type: count}（只算成功的 usage_logs）。"""
+        with get_session() as session:
+            subject = self._backend.resolve(session, user_id)
+            if not subject:
+                return {}
+            rows = (
+                session.query(UsageLog.feature_type, func.count(UsageLog.id))
+                .filter(
+                    UsageLog.account_id == subject.id,
+                    UsageLog.status == 'completed',
+                )
+                .group_by(UsageLog.feature_type)
+                .all()
+            )
+            return {feature_type: count for feature_type, count in rows}
 
     def get_point_history(self, user_id, limit=10):
         """查詢交易記錄"""

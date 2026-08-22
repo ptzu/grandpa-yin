@@ -38,7 +38,7 @@ class GiftFeature(BaseFeature):
             return True
 
         # 等卡號時，任何文字都當成卡號（全局命令在路由層已先被攔下，
-        # 所以「功能」「點數」仍然隨時逃得掉）
+        # 所以「功能」「會員中心」仍然隨時逃得掉）
         state = self.resolve_user_state(user_id, user_state)
         return bool(state and state.get("feature") == self.name
                     and state.get("state") == STATE_WAITING_CODE)
@@ -116,16 +116,15 @@ class GiftFeature(BaseFeature):
         用在「按按鈕領取」那條路上：對方是在 LIFF 頁面裡完成領取的，聊天室裡
         不會留下任何痕跡；不補這一則，他關掉頁面之後就沒有東西可以回頭看了。
         """
-        user_name = self.get_user_name(user_id)
         message = TextSendMessage(
-            text=(f"🎁 {user_name}，您收到一份禮物！\n\n"
+            text=(f"🎁 您收到一份禮物！\n\n"
                   f"朋友送您 {points} 點，已經加進您的帳戶了。\n\n"
                   f"您現在有 {balance} 點，可以拿老照片來試試看。"),
             quick_reply=QuickReply(items=[
                 QuickReplyButton(action=MessageAction(label=label, text=value))
                 for label, value in [("📸 修復老照片", "修復老照片"),
                                      ("🎬 照片動起來", "照片動起來"),
-                                     ("💎 我的點數", "點數")]
+                                     ("👤 會員中心", "會員中心")]
             ]),
         )
         return self.publisher.process_push_message(user_id, message)
@@ -161,12 +160,12 @@ class GiftFeature(BaseFeature):
             # 就走到這裡。寫得像收禮，不像交易確認。
             return self._reply(
                 reply_token, user_id, event,
-                f"🎁 {user_name}，您收到一份禮物！\n\n"
+                f"🎁 您收到一份禮物！\n\n"
                 f"朋友送您 {result.points} 點，已經加進您的帳戶了。\n\n"
                 f"您現在有 {result.balance} 點，可以拿老照片來試試看。",
                 quick_reply=[("📸 修復老照片", "修復老照片"),
                              ("🎬 照片動起來", "照片動起來"),
-                             ("💎 我的點數", "點數")],
+                             ("👤 會員中心", "會員中心")],
             )
 
         if result.status == gift_codes.ALREADY_USED:

@@ -278,3 +278,50 @@ class TestStashFallback:
             f"上傳失敗應退回 base64 並繼續，實得：{env.state!r}"
         )
         assert "錯誤" not in env.last_text
+
+
+class TestUploadButtons:
+    """「請傳照片」提示要提供拍照／相簿按鈕，長輩不必自己找輸入框的「＋」。"""
+
+    def test_edit_prompt_offers_camera_and_album(self, env):
+        env.send_text("P圖大神")
+        assert "拍照" in env.quick_reply
+        assert "選照片" in env.quick_reply
+        assert "❌ 取消" in env.quick_reply
+
+    def test_animate_prompt_offers_upload_buttons(self, env):
+        env.send_text("照片動起來")
+        assert "拍照" in env.quick_reply
+        assert "選照片" in env.quick_reply
+
+    def test_colorize_prompt_offers_upload_without_cancel(self, env):
+        env.send_text("修復老照片")
+        assert "拍照" in env.quick_reply
+        assert "選照片" in env.quick_reply
+        assert "❌ 取消" not in env.quick_reply, "colorize 沒有取消流程，不放取消鈕"
+
+    def test_waiting_image_reminder_repeats_upload_buttons(self, env):
+        env.send_text("P圖大神")
+        env.reset()
+        env.send_text("嗨")  # 等圖片時亂打字
+        assert "拍照" in env.quick_reply
+        assert "選照片" in env.quick_reply
+
+
+class TestFeatureEntryPrompt:
+    """進入功能的第一句統一格式：先講選了什麼、扣幾點，再指引動作。"""
+
+    def test_edit_entry_states_choice_and_cost(self, env):
+        env.send_text("P圖大神")
+        assert "你現在選擇了「P圖大神」" in env.last_text
+        assert f"扣 {EDIT_COST} 點" in env.last_text
+
+    def test_colorize_entry_states_choice_and_cost(self, env):
+        env.send_text("修復老照片")
+        assert "你現在選擇了「修復老照片」" in env.last_text
+        assert f"扣 {COLORIZE_COST} 點" in env.last_text
+
+    def test_animate_entry_states_choice_and_cost(self, env):
+        env.send_text("照片動起來")
+        assert "你現在選擇了「照片動起來」" in env.last_text
+        assert "扣 25 點" in env.last_text

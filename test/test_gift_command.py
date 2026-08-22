@@ -188,7 +188,7 @@ def test_topup_gives_exactly_one_link(with_public_url):
 def test_points_query_points_at_the_command_not_a_url(with_public_url):
     """查點數時給指令就好——網址留給真的要買的那一頁"""
     env = gift_env(with_payments=True)
-    env.send_text("點數")
+    env.send_text("會員中心")
 
     text = reply(env)
     assert "儲值" in text
@@ -210,7 +210,7 @@ def test_running_out_of_points_still_gives_a_way_out(with_public_url):
 def test_without_liff_the_plain_gift_url_is_offered_instead(without_liff):
     """LIFF 沒開通時 bot 講不出分流頁，改給家人也開得起來的一般網頁"""
     env = gift_env(with_payments=True)
-    env.send_text("點數")
+    env.send_text("會員中心")
 
     assert GIFT_URL in reply(env)
 
@@ -218,7 +218,7 @@ def test_without_liff_the_plain_gift_url_is_offered_instead(without_liff):
 def test_nothing_is_offered_without_a_gateway(with_public_url):
     """金流沒接的時候，兩條路都不能提"""
     env = gift_env(with_payments=False)
-    env.send_text("點數")
+    env.send_text("會員中心")
 
     text = reply(env)
     assert "/gift" not in text and "儲值" not in text

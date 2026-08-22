@@ -103,8 +103,8 @@ class EditFeature(ReplicateImageFeature):
                 # 等圖片時收到文字：明確引導，而不是靜默丟棄
                 self._reply(
                     reply_token, user_id, event,
-                    "還沒收到照片喔。\n\n請按輸入框旁邊的「＋」，選「照片」傳給我。",
-                    self._cancel_quick_reply()
+                    "還沒收到照片喔。\n\n點下面的按鈕拍照，或從相簿選一張給我。",
+                    self.photo_upload_quick_reply(CMD_CANCEL)
                 )
                 return None
 
@@ -199,10 +199,8 @@ class EditFeature(ReplicateImageFeature):
 
         self._reply(
             reply_token, user_id, event,
-            f"{user_name}，請先傳一張照片給我，\n"
-            f"接著我會給您幾個修改的選項。\n\n"
-            f"確定要改之後才會扣 {self.required_points} 點，在那之前都可以取消。",
-            self._cancel_quick_reply()
+            self.photo_request_prompt(),
+            self.photo_upload_quick_reply(CMD_CANCEL)
         )
         return None
 
@@ -210,11 +208,10 @@ class EditFeature(ReplicateImageFeature):
         """圖片已暫存，請用戶選擇或輸入編輯描述"""
         self.set_user_state(user_id, STATE_WAITING_DESCRIPTION, stash)
 
-        user_name = self.get_user_name(user_id)
         headline = (
             "好，換成這張新的了。"
             if is_replacement
-            else f"{user_name}，照片收到了。"
+            else "照片收到了。"
         )
 
         self._reply(

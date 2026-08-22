@@ -74,10 +74,9 @@ class FollowUpFeature(BaseFeature):
             return None
 
         items.append(QuickReplyButton(action=MessageAction(label="👌 不用了", text=CMD_DONE)))
-        user_name = self.get_user_name(user_id)
         return TextSendMessage(
             text=(
-                f"{user_name}，做好了。\n\n"
+                "做好了。\n\n"
                 "想傳給家人的話，長按照片就可以轉傳。\n\n"
                 "還要再做點什麼嗎？"
             ),

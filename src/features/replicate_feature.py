@@ -62,6 +62,17 @@ class ReplicateImageFeature(BaseFeature):
             return False
         return self.is_user_in_state(user_id, self.image_waiting_state)
 
+    def photo_request_prompt(self, subject: str = "照片") -> str:
+        """三個圖片功能共用的進入提示：先講選了什麼、扣幾點，再指引動作。
+
+        功能名直接用 trigger_command（就是對外顯示名），扣點用 required_points，
+        改設定或改名都不必再動這段文字。
+        """
+        return (
+            f"你現在選擇了「{self.trigger_command}」，完成後會扣 {self.required_points} 點。\n\n"
+            f"請點下面的按鈕拍照，或從相簿選一張{subject}給我。"
+        )
+
     # ---- Guards ----
 
     def reply_maintenance_if_unavailable(self, reply_token, user_id, event, clear_state=False) -> bool:

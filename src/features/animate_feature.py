@@ -96,8 +96,8 @@ class AnimateFeature(ReplicateImageFeature):
             if current_state == STATE_WAITING_IMAGE:
                 self._reply(
                     reply_token, user_id, event,
-                    "還沒收到照片喔。\n\n請按輸入框旁邊的「＋」，選「照片」傳給我。",
-                    self._cancel_quick_reply()
+                    "還沒收到照片喔。\n\n點下面的按鈕拍照，或從相簿選一張給我。",
+                    self.photo_upload_quick_reply(CMD_CANCEL)
                 )
                 return None
 
@@ -166,20 +166,17 @@ class AnimateFeature(ReplicateImageFeature):
         self.set_user_state(user_id, STATE_WAITING_IMAGE)
         self._reply(
             reply_token, user_id, event,
-            f"{user_name}，請傳一張照片給我，\n"
-            f"我會讓照片裡的人動起來，做成一小段影片。\n\n"
-            f"確定要做之後才會扣 {self.required_points} 點，在那之前都可以取消。",
-            self._cancel_quick_reply()
+            self.photo_request_prompt(),
+            self.photo_upload_quick_reply(CMD_CANCEL)
         )
         return None
 
     def _ask_to_confirm(self, reply_token, user_id, event, stash: dict, is_replacement=False):
         self.set_user_state(user_id, STATE_WAITING_CONFIRM, stash)
-        user_name = self.get_user_name(user_id)
         headline = (
             "好，換成這張新的了。"
             if is_replacement
-            else f"{user_name}，照片收到了。"
+            else "照片收到了。"
         )
         self._reply(
             reply_token, user_id, event,
@@ -189,7 +186,6 @@ class AnimateFeature(ReplicateImageFeature):
         )
 
     def _handle_confirm(self, reply_token, user_id, event, state_data: dict) -> dict:
-        user_name = self.get_user_name(user_id)
         try:
             if not self.has_stashed_image(state_data):
                 self.clear_user_state(user_id)

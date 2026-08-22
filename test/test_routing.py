@@ -27,13 +27,13 @@ class TestRegistrationOrder:
 
 class TestGlobalCommands:
     def test_global_command_works_mid_flow(self):
-        """卡在編輯流程中途時，「點數」仍要查得到點數"""
+        """卡在編輯流程中途時，「會員中心」仍要查得到資料"""
         env = build_env(with_member_feature=True)
         env.send_text("P圖大神")
         env.send_image()
         env.reset()
 
-        env.send_text("點數")
+        env.send_text("會員中心")
 
         assert "點" in env.last_text, f"全局命令應被 member 接走，實得：{env.last_text!r}"
 
@@ -43,9 +43,9 @@ class TestGlobalCommands:
         env.send_image()
         before = env.state
 
-        env.send_text("點數")
+        env.send_text("會員中心")
 
-        assert env.state == before, "查點數不該把用戶踢出編輯流程"
+        assert env.state == before, "查會員中心不該把用戶踢出編輯流程"
 
     def test_menu_command_works_mid_flow(self, env):
         env.send_text("P圖大神")
