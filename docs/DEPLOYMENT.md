@@ -236,7 +236,7 @@ python3 -m src.core.settings          # 設定檔正常？印出實際生效的�
 | 動作 | 預期 |
 |---|---|
 | 加好友 | 收到歡迎訊息，含贈送的點數 |
-| 輸入「點數」 | 顯示餘額（＝`config/settings.yml` 的 `welcome_points`） |
+| 輸入「會員中心」 | 顯示餘額（＝`config/settings.yml` 的 `welcome_points`）、狀態與作品統計 |
 | **直接傳一張照片** | 跳出「上色／修改／取消」選單 → 代表 Storage 通了 |
 | 選「幫照片上色」 | 扣點 → 收到成品圖 |
 | 再輸入「歷史」 | 看得到剛才那筆扣點紀錄 |

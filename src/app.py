@@ -18,6 +18,7 @@ from src.core.settings import get_member_settings
 from src.services.billing import BillingService
 from src.services.message_publisher import MessagePublisher
 from src.services.line_client import LineClient
+from src.services.display_name import resolve_display_name
 from src.services.replicate_client import ReplicateClient
 from src.services.preview_store import LocalPreviewStore, set_public_base_url
 from src.services.user_state_manager import UserStateManager
@@ -130,6 +131,12 @@ def init():
             member_service = None
     else:
         member_service = None
+
+    # 所有回覆／推播統一補「Hi 名字 😊」開頭：publisher 比 member_service 早建立，
+    # 這裡才接上名字解析（會員資料優先，退回 LINE profile）。
+    publisher.set_name_resolver(
+        lambda uid: resolve_display_name(uid, member_service, line_client)
+    )
 
     # 6. 圖片暫存服務（Supabase Storage，未設定時 EditFeature 會退回 base64 存 state）
     storage_service = StorageService()

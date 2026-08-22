@@ -224,6 +224,8 @@ class FakeMemberService:
         self.points = points
         self.deductions = []
         self.refunds = []
+        # {feature_type: count}，測試可覆寫來驗證作品統計
+        self.works = {}
 
     def _member(self):
         # Same shape as MemberService._member_dict()
@@ -238,6 +240,9 @@ class FakeMemberService:
 
     def get_or_create_member(self, user_id, display_name=None):
         return self._member()
+
+    def get_works_summary(self, user_id):
+        return dict(self.works)
 
     def get_member_info(self, user_id):
         return self._member()

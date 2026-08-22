@@ -1,6 +1,7 @@
 import time
 import requests
 from linebot.exceptions import LineBotApiError
+from linebot.models import TextSendMessage
 from src.core.app_logger import get_logger
 
 logger = get_logger("publisher")
@@ -9,8 +10,38 @@ logger = get_logger("publisher")
 class MessagePublisher:
     """統一的訊息發送器"""
 
-    def __init__(self, line_bot_api):
+    def __init__(self, line_bot_api, name_resolver=None):
         self.line_bot_api = line_bot_api
+        # (user_id) -> 名字 或 None；由 app.py 接上會員/LINE 名稱解析。
+        # 所有回覆／推播都會統一補上「Hi 名字 😊」開頭（見 _apply_greeting）。
+        self._name_resolver = name_resolver
+
+    def set_name_resolver(self, name_resolver):
+        """事後接上名字解析器（publisher 比 member_service 早建立）"""
+        self._name_resolver = name_resolver
+
+    def _greeting_prefix(self, user_id):
+        """組出「Hi 名字 😊\n\n」開頭；取不到名字時退成沒有名字的「Hi 😊」"""
+        name = None
+        if self._name_resolver and user_id:
+            try:
+                name = self._name_resolver(user_id)
+            except Exception as e:
+                logger.warning(f"解析問候名稱失敗 (user={user_id}): {str(e)}")
+        return f"Hi {name} 😊\n\n" if name else "Hi 😊\n\n"
+
+    def _apply_greeting(self, messages, user_id):
+        """在第一則文字訊息前補上問候開頭；圖片／影片訊息不動。
+
+        就地修改 TextSendMessage.text（quick_reply 等欄位保留）。一批訊息只加在
+        第一則文字泡泡，後續泡泡不重複問候。
+        """
+        batch = messages if isinstance(messages, (list, tuple)) else [messages]
+        for msg in batch:
+            if isinstance(msg, TextSendMessage) and getattr(msg, "text", None) is not None:
+                msg.text = f"{self._greeting_prefix(user_id)}{msg.text}"
+                break
+        return messages
 
     def _send_with_retry(self, send_fn, description, max_attempts=3):
         """
@@ -105,6 +136,7 @@ class MessagePublisher:
             None（統一回傳，webhook 以 200 回應 LINE）
         """
         try:
+            messages = self._apply_greeting(messages, user_id)
             self.line_bot_api.reply_message(reply_token, messages)
         except LineBotApiError as e:
             status_code = getattr(e, 'status_code', None)
@@ -144,6 +176,9 @@ class MessagePublisher:
             target_id = self._get_target_id(event)
         else:
             target_id = user_id
+
+        # 問候用 user_id（發起者本人）解析名字，即使群組推送到 group 也一樣
+        messages = self._apply_greeting(messages, user_id)
 
         # 推送多在背景執行緒進行，可承受重試；reply token 為一次性故 reply 不重試
         return self._send_with_retry(

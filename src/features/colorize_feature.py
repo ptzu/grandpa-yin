@@ -78,7 +78,6 @@ class ColorizeFeature(ReplicateImageFeature):
 
     def _start_processing(self, reply_token: str, user_id: str, event: dict, image_bytes: bytes):
         """回覆已收到 → 背景計費處理（兩種入口共用的尾段）"""
-        user_name = self.get_user_name(user_id)
         try:
             # 設定狀態為正在彩色化
             self.set_user_state(user_id, "processing")
@@ -123,7 +122,8 @@ class ColorizeFeature(ReplicateImageFeature):
         self.publisher.process_reply_message(
             reply_token,
             TextSendMessage(
-                text=f"{user_name}，請把老照片傳給我，我來幫它上色。\n\n做好會用掉 {self.required_points} 點。"
+                text=self.photo_request_prompt(subject="老照片"),
+                quick_reply=self.photo_upload_quick_reply()
             ),
             user_id,
             event

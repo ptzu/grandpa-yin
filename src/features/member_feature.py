@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from linebot.models import FlexSendMessage
+from linebot.models import (
+    FlexSendMessage, TextSendMessage, QuickReply, QuickReplyButton, MessageAction,
+)
 
 from src.core.app_logger import get_logger
 from src.features.base_feature import BaseFeature
@@ -16,7 +18,7 @@ class MemberFeature(BaseFeature):
         return "member"
     
     # 本功能負責的指令（完全比對；同義詞已精簡掉，見 feature_registry）
-    COMMANDS = ("點數", "歷史", "會員", "儲值")
+    COMMANDS = ("歷史", "會員中心", "儲值")
 
     def can_handle(self, message: str, user_id: str, user_state=None) -> bool:
         """判斷是否能處理此訊息"""
@@ -29,11 +31,9 @@ class MemberFeature(BaseFeature):
         message = self.get_message_text(event).strip()
         user_name = self.get_user_name(user_id)
         
-        if message == "點數":
-            return self._handle_points_query(user_id, user_name, reply_token, event)
-        elif message == "歷史":
+        if message == "歷史":
             return self._handle_history_query(user_id, user_name, reply_token, event)
-        elif message == "會員":
+        elif message == "會員中心":
             return self._handle_member_info(user_id, user_name, reply_token, event)
         elif message == "儲值":
             return self._handle_topup(user_id, user_name, reply_token, event)
@@ -72,6 +72,34 @@ class MemberFeature(BaseFeature):
             },
         )
         return self.publisher.process_push_message(user_id, message)
+
+    # usage_logs 的 feature_type -> （顯示名稱, 量詞）；影片用「支」、照片用「張」
+    _WORK_LABELS = [
+        ("colorize", "上色", "張"),
+        ("edit", "修圖", "張"),
+        ("animate", "影片", "支"),
+    ]
+
+    def _works_summary_block(self, user_id: str) -> str:
+        """做過的作品統計；沒有作品時給句鼓勵語。"""
+        try:
+            counts = self.member_service.get_works_summary(user_id) or {}
+        except Exception:
+            logger.exception(f"查詢作品統計失敗: {user_id}")
+            return ""
+        parts = [f"{label} {counts[ft]} {unit}"
+                 for ft, label, unit in self._WORK_LABELS if counts.get(ft)]
+        if not parts:
+            return "\n\n您還沒有作品，快傳張照片來試試看。"
+        return "\n\n您做過的作品：\n" + "、".join(parts)
+
+    def _member_center_quick_reply(self) -> QuickReply:
+        """會員中心的常用入口：歷史 ＋ 儲值（有開放才給）＋ 使用說明。"""
+        items = [QuickReplyButton(action=MessageAction(label="📜 歷史紀錄", text="歷史"))]
+        if self.payment_service and self.payment_service.topup_link():
+            items.append(QuickReplyButton(action=MessageAction(label="💎 儲值", text="儲值")))
+        items.append(QuickReplyButton(action=MessageAction(label="❓ 使用說明", text="使用說明")))
+        return QuickReply(items=items)
 
     def _handle_topup(self, user_id: str, user_name: str, reply_token: str, event: dict):
         """處理儲值：給出付款頁連結與方案"""
@@ -132,55 +160,6 @@ class MemberFeature(BaseFeature):
         except Exception:
             logger.exception(f"處理儲值失敗: {user_id}")
             self.publisher.reply_text(reply_token, "現在沒辦法加值，麻煩晚一點再試。", user_id, event)
-            return "OK"
-    
-    def _handle_points_query(self, user_id: str, user_name: str, reply_token: str, event: dict):
-        """處理點數查詢"""
-        try:
-            # 使用統一的會員服務獲取或建立會員
-            member = self.member_service.get_or_create_member(user_id, user_name)
-            
-            if not member:
-                self.publisher.reply_text(reply_token, "現在查不到您的資料，麻煩晚一點再試。", user_id, event)
-                return "OK"
-            
-            # 從字典中提取所需的屬性值
-            display_name = member['display_name']
-            points = member['points']
-            status = member['status']
-            
-            # 狀態顯示
-            status_map = {
-                'normal': '正常',
-                'vip': 'VIP',
-                'suspended': '停用',
-                'banned': '黑名單'
-            }
-            status_text = status_map.get(status, status)
-            
-            # 狀態表情符號
-            status_emoji = {
-                'normal': '✅',
-                'vip': '⭐',
-                'suspended': '⚠️',
-                'banned': '🚫'
-            }
-            emoji = status_emoji.get(status, '❓')
-            
-            status_line = "" if status == "normal" else f"\n狀態：{status_text}"
-            hint = self.points_top_up_hint()
-            hint_block = f"\n\n{hint}" if hint else ""
-            response = f"""{display_name}，您還有 {points} 點。{status_line}
-
-想看用過哪些，輸入「歷史」
-想看完整資料，輸入「會員」{hint_block}"""
-            
-            self.publisher.reply_text(reply_token, response, user_id, event)
-            return "OK"
-            
-        except Exception:
-            logger.exception(f"查詢點數失敗: {user_id}")
-            self.publisher.reply_text(reply_token, "現在查不到，麻煩晚一點再試。", user_id, event)
             return "OK"
     
     def _handle_history_query(self, user_id: str, user_name: str, reply_token: str, event: dict):
@@ -255,8 +234,7 @@ class MemberFeature(BaseFeature):
                 self.publisher.reply_text(reply_token, "現在查不到您的資料，麻煩晚一點再試。", user_id, event)
                 return "OK"
             
-            # 從字典中提取所需的屬性值
-            display_name = member['display_name']
+            # 從字典中提取所需的屬性值（名字由問候前綴承擔，內文不再重複）
             points = member['points']
             status = member['status']
             created_at_str = member['created_at']
@@ -281,13 +259,19 @@ class MemberFeature(BaseFeature):
             else:
                 created_at_str = "未知"
             
-            response = f"""{display_name}
-
-點數：{points} 點
+            response = f"""點數：{points} 點
 狀態：{status_text}
-加入時間：{created_at_str}"""
-            
-            self.publisher.reply_text(reply_token, response, user_id, event)
+加入時間：{created_at_str}""" + self._works_summary_block(user_id)
+
+            hint = self.points_top_up_hint()
+            if hint:
+                response += f"\n\n{hint}"
+
+            self.publisher.process_reply_message(
+                reply_token,
+                TextSendMessage(text=response, quick_reply=self._member_center_quick_reply()),
+                user_id, event,
+            )
             return "OK"
             
         except Exception:

@@ -90,10 +90,9 @@ class PhotoIntentFeature(BaseFeature):
 
             self.set_user_state(user_id, STATE_WAITING_CHOICE, stash)
 
-            user_name = self.get_user_name(user_id)
             self._reply(
                 reply_token, user_id, event,
-                f"{user_name}，照片收到了。\n\n想要我幫您做什麼？點下面的按鈕就好。",
+                "照片收到了。\n\n想要我幫您做什麼？點下面的按鈕就好。",
                 self._choice_quick_reply()
             )
 
