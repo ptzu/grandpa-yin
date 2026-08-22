@@ -1,20 +1,19 @@
 """End-to-end tests for the photo flow state machine.
 
 Drives the real FeatureRegistry through the fakes in conftest.py: "send photo →
-pick a feature → pick a description → confirm and get charged", plus every
-branch off it (cancel, swap photo, redo description, insufficient points).
+pick a feature → pick a description → get charged and delivered", plus every
+branch off it (cancel, swap photo, insufficient points).
 """
 import pytest
 
 from conftest import COLORIZE_COST, EDIT_COST
 
 CHOICE_BUTTONS = ["📸 幫照片上色", "🎬 讓照片動起來", "🎨 照我說的修改", "❌ 取消"]
-CONFIRM_BUTTONS = ["✅ 確定開始", "✏️ 重新描述", "❌ 取消"]
 PRESET_BUTTON = "🏖️ 背景換成海灘"
 
 
 class TestPhotoFirstFlow:
-    """先傳照片 → 選修改 → 選描述 → 確認 → 扣點出圖"""
+    """先傳照片 → 選修改 → 選描述 → 直接扣點出圖"""
 
     def test_photo_gets_a_reply_with_choices(self, env):
         env.send_image()
@@ -35,25 +34,13 @@ class TestPhotoFirstFlow:
         assert len(env.storage.objects) == 1, "交棒不應重新上傳照片"
         assert env.member.points == 100, "此時尚未扣點"
 
-    def test_description_moves_to_confirm_without_charging(self, env):
+    def test_description_charges_once_and_delivers(self, env):
+        """拿到描述就直接開始做並扣點，不再多問一次確認"""
         env.send_image()
         env.send_text("照我說的修改")
         env.reset()
 
         env.send_text("背景換成海灘")
-
-        assert env.state_is("edit", "waiting_confirm")
-        assert f"{EDIT_COST} 點" in env.last_text, "確認訊息要載明扣點數"
-        assert env.member.points == 100, "確認前不得扣點"
-        assert env.quick_reply == CONFIRM_BUTTONS
-
-    def test_confirm_charges_once_and_delivers(self, env):
-        env.send_image()
-        env.send_text("照我說的修改")
-        env.send_text("背景換成海灘")
-        env.reset()
-
-        env.send_text("確定開始")
 
         assert env.member.deductions == [
             {"amount": EDIT_COST, "feature": "edit", "description": "P圖大神：背景換成海灘"}
@@ -84,10 +71,9 @@ class TestColorizeHandoff:
 class TestCancel:
     """取消：任何階段都不扣點、不留垃圾"""
 
-    def test_cancel_at_confirm_stage(self, env):
+    def test_cancel_at_description_stage(self, env):
         env.send_image()
         env.send_text("照我說的修改")
-        env.send_text("背景換成海灘")
         env.reset()
 
         env.send_text("取消")
@@ -96,27 +82,6 @@ class TestCancel:
         assert "沒有扣" in env.last_text, "要明確告知未扣點"
         assert env.state is None
         assert env.storage.objects == {}
-
-
-class TestRedoDescription:
-    """重新描述：照片保留、不必重傳"""
-
-    def test_redo_keeps_photo_and_drops_old_description(self, env):
-        env.send_image()
-        env.send_text("照我說的修改")
-        env.send_text("背景換成海灘")
-        key_before = env.state["data"]["image_key"]
-        env.reset()
-
-        env.send_text("重新描述")
-
-        assert env.state_is("edit", "waiting_description")
-        assert env.state["data"].get("image_key") == key_before, "照片不該被丟掉"
-        assert "description" not in env.state["data"], "舊描述要清掉"
-        assert PRESET_BUTTON in env.quick_reply
-
-        env.send_text("天空變成夕陽")
-        assert env.state["data"]["description"] == "天空變成夕陽"
 
 
 class TestReplacePhoto:
@@ -173,7 +138,6 @@ class TestClassicFlow:
         assert env.state_is("edit", "waiting_description"), "edit 應自己收下照片，沒被 photo_intent 攔走"
 
         env.send_text("加上彩虹")
-        env.send_text("確定開始")
 
         assert env.member.deductions
         assert env.member.deductions[0]["feature"] == "edit"
@@ -224,14 +188,11 @@ class TestFeatureSwitching:
 
 # 各種中斷路徑都不留孤兒圖
 ORPHAN_PATHS = [
-    ("走完完整流程", ["img", "照我說的修改", "加上彩虹", "確定開始"]),
+    ("走完完整流程", ["img", "照我說的修改", "加上彩虹"]),
     ("意圖選單直接取消", ["img", "取消"]),
     ("描述階段取消", ["img", "照我說的修改", "取消"]),
-    ("確認階段取消", ["img", "照我說的修改", "加上彩虹", "取消"]),
     ("連傳三張只留最後一張再取消", ["img", "img", "img", "取消"]),
-    ("換圖後走完流程", ["img", "照我說的修改", "img", "加上彩虹", "確定開始"]),
-    ("重新描述後走完流程",
-     ["img", "照我說的修改", "加上彩虹", "重新描述", "天空變成夕陽", "確定開始"]),
+    ("換圖後走完流程", ["img", "照我說的修改", "img", "加上彩虹"]),
     ("中途改用選單功能", ["img", "照我說的修改", "修復老照片"]),
 ]
 

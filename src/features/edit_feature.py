@@ -5,20 +5,18 @@ from .replicate_feature import ReplicateImageFeature
 
 logger = get_logger("edit")
 
-# 狀態機：waiting_image -> waiting_description -> waiting_confirm -> processing
+# 狀態機：waiting_image -> waiting_description -> processing
+# （拿到圖＋描述就算資訊足夠，直接開始做，不再多一道確認）
 STATE_WAITING_IMAGE = "waiting_image"
 STATE_WAITING_DESCRIPTION = "waiting_description"
-STATE_WAITING_CONFIRM = "waiting_confirm"
 STATE_PROCESSING = "processing"
 
 # 有圖在手、可以接受新描述的狀態
-STATES_WITH_IMAGE = (STATE_WAITING_DESCRIPTION, STATE_WAITING_CONFIRM)
+STATES_WITH_IMAGE = (STATE_WAITING_DESCRIPTION,)
 
 # Quick Reply 按鈕送出的指令文字
 CMD_CANCEL = "取消"
 CMD_CUSTOM_DESCRIPTION = "我自己描述"
-CMD_CONFIRM = "確定開始"
-CMD_REDO_DESCRIPTION = "重新描述"
 
 # 預設編輯描述：按鈕文字即描述本身，長輩不必打字就能完成整套流程
 PRESET_DESCRIPTIONS = [
@@ -33,8 +31,8 @@ PRESET_DESCRIPTIONS = [
 class EditFeature(ReplicateImageFeature):
     """P圖大神功能處理器
 
-    流程：上傳圖片 → 選（或輸入）編輯描述 → 確認扣點 → 背景處理。
-    圖片可在描述／確認階段隨時換掉，描述也可以重來，確認前都不扣點。
+    流程：上傳圖片 → 選（或輸入）編輯描述 → 直接開始（扣點）背景處理。
+    圖片可在描述階段隨時換掉；拿到描述就開始做，不再多問一次確認。
     """
 
     trigger_command = "P圖大神"
@@ -55,13 +53,6 @@ class EditFeature(ReplicateImageFeature):
         items.append(QuickReplyButton(action=MessageAction(label="✏️ 我自己描述", text=CMD_CUSTOM_DESCRIPTION)))
         items.append(QuickReplyButton(action=MessageAction(label="❌ 取消", text=CMD_CANCEL)))
         return QuickReply(items=items)
-
-    def _confirm_quick_reply(self) -> QuickReply:
-        return QuickReply(items=[
-            QuickReplyButton(action=MessageAction(label="✅ 確定開始", text=CMD_CONFIRM)),
-            QuickReplyButton(action=MessageAction(label="✏️ 重新描述", text=CMD_REDO_DESCRIPTION)),
-            QuickReplyButton(action=MessageAction(label="❌ 取消", text=CMD_CANCEL)),
-        ])
 
     def _cancel_quick_reply(self) -> QuickReply:
         return QuickReply(items=[
@@ -116,14 +107,6 @@ class EditFeature(ReplicateImageFeature):
                         self._cancel_quick_reply()
                     )
                     return None
-                return self._handle_description_input(reply_token, user_id, event, state_data, message)
-
-            if current_state == STATE_WAITING_CONFIRM:
-                if message == CMD_CONFIRM:
-                    return self._handle_confirm(reply_token, user_id, event, state_data)
-                if message == CMD_REDO_DESCRIPTION:
-                    return self._handle_redo_description(reply_token, user_id, event, state_data)
-                # 沒點按鈕而是直接又打了一段描述：當成改描述，重新確認
                 return self._handle_description_input(reply_token, user_id, event, state_data, message)
 
         except Exception:
@@ -221,7 +204,7 @@ class EditFeature(ReplicateImageFeature):
         )
 
     def _handle_description_input(self, reply_token: str, user_id: str, event: dict, state_data: dict, description: str) -> dict:
-        """收到編輯描述 → 進入確認階段（此時仍未扣點）"""
+        """收到編輯描述 → 直接開始處理（拿到圖＋描述就夠了，不再多問一次）"""
         if not self.has_stashed_image(state_data):
             self.clear_user_state(user_id)
             self._reply(reply_token, user_id, event, "找不到剛才那張照片，麻煩重新開始一次。")
@@ -230,27 +213,7 @@ class EditFeature(ReplicateImageFeature):
         # 保留圖片位置，附加描述
         next_data = dict(state_data)
         next_data["description"] = description
-        self.set_user_state(user_id, STATE_WAITING_CONFIRM, next_data)
-
-        self._reply(
-            reply_token, user_id, event,
-            f"我會這樣改：\n\n「{description}」\n\n"
-            f"開始之後會扣 {self.required_points} 點，確定嗎？",
-            self._confirm_quick_reply()
-        )
-        return None
-
-    def _handle_redo_description(self, reply_token: str, user_id: str, event: dict, state_data: dict) -> dict:
-        """退回描述階段，圖片保留不動"""
-        next_data = {k: v for k, v in state_data.items() if k != "description"}
-        self.set_user_state(user_id, STATE_WAITING_DESCRIPTION, next_data)
-
-        self._reply(
-            reply_token, user_id, event,
-            "好，照片我留著。\n\n請重新告訴我想怎麼修改。",
-            self._description_quick_reply()
-        )
-        return None
+        return self._start_processing(reply_token, user_id, event, next_data)
 
     def _handle_cancel(self, reply_token: str, user_id: str, event: dict, state_data: dict) -> dict:
         """取消流程：丟棄暫存圖片與狀態，未扣任何點數"""
@@ -262,9 +225,8 @@ class EditFeature(ReplicateImageFeature):
         )
         return None
 
-    def _handle_confirm(self, reply_token: str, user_id: str, event: dict, state_data: dict) -> dict:
-        """用戶確認 → 取出暫存圖片 → 背景計費處理"""
-        user_name = self.get_user_name(user_id)
+    def _start_processing(self, reply_token: str, user_id: str, event: dict, state_data: dict) -> dict:
+        """拿到圖＋描述 → 取出暫存圖片 → 背景計費處理"""
         description = state_data.get("description")
 
         try:
@@ -297,7 +259,7 @@ class EditFeature(ReplicateImageFeature):
             )
 
         except Exception:
-            logger.exception(f"P圖大神確認處理失敗: {user_id}")
+            logger.exception(f"P圖大神處理失敗: {user_id}")
             self.clear_user_state(user_id)
             self._reply(reply_token, user_id, event, "處理的時候出了點問題，麻煩晚一點再試。")
 

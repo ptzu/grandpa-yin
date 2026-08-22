@@ -6,7 +6,7 @@ last, and global commands cutting through an in-progress flow.
 """
 import pytest
 
-from conftest import build_env, text_event, image_event, USER
+from conftest import build_env, text_event, image_event, USER, EDIT_COST
 
 
 class TestRegistrationOrder:
@@ -96,8 +96,10 @@ class TestTriggerCommands:
 
         env.send_text("把背景換成公園")
 
-        assert env.state["state"] == "waiting_confirm"
-        assert env.state["data"]["description"] == "把背景換成公園"
+        # 自由打字被當成描述，拿到就直接開始做並用它扣點
+        assert env.member.deductions == [
+            {"amount": EDIT_COST, "feature": "edit", "description": "P圖大神：把背景換成公園"}
+        ]
 
 
 class TestUnroutableMessages:

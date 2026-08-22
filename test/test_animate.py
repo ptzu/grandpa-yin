@@ -1,4 +1,4 @@
-"""照片動起來：確認才扣點、輸出影片、以及縮圖的生命週期。
+"""照片動起來：上傳即開始扣點做影片、以及縮圖的生命週期。
 
 縮圖那部分是這個功能最容易寫錯的地方：LINE 會在訊息推送**之後**才自己去抓
 縮圖，所以那張圖不能跟其他暫存圖一樣處理完就刪——刪了就破圖。
@@ -9,8 +9,6 @@ from conftest import ANIMATE_COST, USER, build_env
 from src.services.preview_store import set_public_base_url
 from src.services.result_archive import RESULT_PREFIX, RETENTION_DAYS
 
-CONFIRM_BUTTONS = ["✅ 確定開始", "❌ 取消"]
-
 
 @pytest.fixture
 def env():
@@ -18,6 +16,7 @@ def env():
 
 
 def start_and_send_photo(env):
+    """進功能 → 傳照片；傳照片就直接開始做影片並扣點，沒有確認關卡"""
     env.send_text("照片動起來")
     env.send_image()
 
@@ -30,18 +29,9 @@ class TestFlow:
         assert "照片" in env.last_text
         assert f"{ANIMATE_COST} 點" in env.last_text, "要先講清楚會扣多少點"
 
-    def test_photo_goes_to_confirmation_without_charging(self, env):
+    def test_photo_charges_and_delivers_a_video(self, env):
+        """上傳照片即開始：扣點、推影片、收尾，不再多問一次確認"""
         start_and_send_photo(env)
-
-        assert env.state_is("animate", "waiting_confirm")
-        assert env.quick_reply == CONFIRM_BUTTONS
-        assert env.member.deductions == [], "確認前不得扣點"
-
-    def test_confirm_charges_and_delivers_a_video(self, env):
-        start_and_send_photo(env)
-        env.reset()
-
-        env.send_text("確定開始")
 
         assert env.member.deductions == [
             {"amount": ANIMATE_COST, "feature": "animate", "description": "照片動起來"}
@@ -51,8 +41,9 @@ class TestFlow:
         assert pushed[-1]["type"] == "VideoSendMessage", f"應推影片，實得 {pushed[-1]['type']}"
         assert env.state is None
 
-    def test_cancel_costs_nothing_and_cleans_up(self, env):
-        start_and_send_photo(env)
+    def test_cancel_before_upload_costs_nothing(self, env):
+        """進了功能還沒傳照片時取消：不扣點、狀態收乾淨"""
+        env.send_text("照片動起來")
         env.reset()
 
         env.send_text("取消")
@@ -60,13 +51,14 @@ class TestFlow:
         assert env.member.deductions == []
         assert "沒有扣" in env.last_text
         assert env.state is None
-        assert env.storage.objects == {}, "取消要把暫存照片刪掉"
+        assert env.storage.objects == {}, "沒上傳就取消，不該留下任何暫存"
 
     def test_no_motion_choice_is_offered(self, env):
-        """刻意不讓用戶選動作——動作越大臉越容易崩"""
+        """刻意不讓用戶選動作——動作越大臉越容易崩；上傳後直接開始做"""
         start_and_send_photo(env)
 
-        assert env.quick_reply == CONFIRM_BUTTONS, "只該有確認/取消，不給動作選項"
+        pushed = [m for m in env.messages if m["kind"] == "push"]
+        assert pushed and pushed[-1]["type"] == "VideoSendMessage", "上傳後直接做影片，不給動作選項"
 
 
 class TestThumbnailLifecycle:
@@ -74,7 +66,6 @@ class TestThumbnailLifecycle:
 
     def test_thumbnail_uses_a_signed_url(self, env):
         start_and_send_photo(env)
-        env.send_text("確定開始")
 
         assert env.storage.signed, "應該為縮圖產生 signed URL"
         key, expires = env.storage.signed[0]
@@ -83,7 +74,6 @@ class TestThumbnailLifecycle:
     def test_thumbnail_lasts_as_long_as_the_video(self, env):
         """影片留 30 天、封面 24 小時就失效 = 用戶回頭看到一則沒有預覽圖的訊息"""
         start_and_send_photo(env)
-        env.send_text("確定開始")
 
         pushed = env.pushed_media()
         assert pushed["type"] == "VideoSendMessage"
@@ -96,12 +86,11 @@ class TestThumbnailLifecycle:
 
     def test_thumbnail_survives_completion(self, env):
         start_and_send_photo(env)
-        key = env.state["data"]["image_key"]
 
-        env.send_text("確定開始")
-
-        assert key in env.storage.objects, "縮圖在流程結束後仍須存在，否則影片訊息破圖"
-        assert key not in env.storage.deleted
+        # 沿用的原圖同時是影片縮圖，LINE 事後才會去抓，所以流程結束後仍須存在
+        surviving = set(env.stashed_objects)
+        assert surviving, "縮圖（沿用的原圖）在流程結束後仍須存在，否則影片訊息破圖"
+        assert not (surviving & set(env.storage.deleted)), "縮圖不能被刪"
 
     def test_serves_thumbnail_locally_when_storage_is_absent(self, monkeypatch):
         """沒有 Storage 時改由本服務供圖（本地開發走 ngrok，不依賴雲端）"""
@@ -110,7 +99,6 @@ class TestThumbnailLifecycle:
         set_public_base_url("https://test.ngrok-free.app")
 
         start_and_send_photo(env)
-        env.send_text("確定開始")
 
         pushed = [m for m in env.messages if m["kind"] == "push"]
         assert pushed[-1]["type"] == "VideoSendMessage", "沒有 Storage 也要做得出影片"
@@ -124,7 +112,6 @@ class TestThumbnailLifecycle:
         set_public_base_url("https://test.ngrok-free.app")
 
         start_and_send_photo(env)
-        env.send_text("確定開始")
 
         import os
         tokens = os.listdir(env.preview_store.directory)
@@ -145,8 +132,6 @@ class TestThumbnailLifecycle:
         set_public_base_url("http://localhost:5000")
 
         start_and_send_photo(env)
-        env.reset()
-        env.send_text("確定開始")
 
         assert env.member.deductions == [], "做不出合規網址就不該扣點"
         assert "出了點問題" in env.last_text
@@ -157,7 +142,6 @@ class TestThumbnailLifecycle:
         env.publisher.push_fails = True
 
         start_and_send_photo(env)
-        env.send_text("確定開始")
 
         assert env.member.points == 100, "白扣點是不能接受的"
         assert env.member.refunds and env.member.refunds[0]["reason"] == "推送失敗"
@@ -169,8 +153,6 @@ class TestThumbnailLifecycle:
         set_public_base_url(None)
 
         start_and_send_photo(env)
-        env.reset()
-        env.send_text("確定開始")
 
         assert env.member.deductions == [], "做不出來就不能扣點"
         assert "出了點問題" in env.last_text
@@ -180,8 +162,6 @@ class TestThumbnailLifecycle:
 class TestModelWiring:
     def test_sends_the_configured_model_and_default_prompt(self, env):
         start_and_send_photo(env)
-
-        env.send_text("確定開始")
 
         call = env.replicate.calls[0]
         assert call["model"] == "prunaai/p-video"
@@ -202,9 +182,6 @@ class TestGuards:
     def test_model_failure_refunds(self):
         env = build_env(replicate_fails_with=RuntimeError("影片模型掛了"))
         start_and_send_photo(env)
-        env.reset()
-
-        env.send_text("確定開始")
 
         assert env.member.points == 100, "扣了又退，餘額回到原點"
         assert env.member.refunds and env.member.refunds[0]["feature"] == "animate"
@@ -217,13 +194,17 @@ class TestPhotoIntentHandoff:
     def test_handoff_from_photo_intent(self, env):
         env.send_image()
         assert env.state_is("photo_intent", "waiting_choice")
+        assert len(env.storage.objects) == 1, "沿用同一份暫存，不重新上傳"
         env.reset()
 
         env.send_text("讓照片動起來")
 
-        assert env.state_is("animate", "waiting_confirm")
-        assert env.member.deductions == [], "交棒後仍要確認才扣點"
-        assert len(env.storage.objects) == 1, "沿用同一份暫存，不重新上傳"
+        assert env.member.deductions == [
+            {"amount": ANIMATE_COST, "feature": "animate", "description": "照片動起來"}
+        ], "交棒後直接開始做並扣點"
+        pushed = [m for m in env.messages if m["kind"] == "push"]
+        assert pushed and pushed[-1]["type"] == "VideoSendMessage", "交棒後直接產出影片"
+        assert env.state is None
 
     def test_choice_menu_offers_animate(self, env):
         env.send_image()

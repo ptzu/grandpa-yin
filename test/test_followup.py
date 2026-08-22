@@ -53,9 +53,6 @@ class TestOffer:
         """影片餵不回圖片模型，所以不給後續選項"""
         env.send_text("照片動起來")
         env.send_image()
-        env.reset()
-
-        env.send_text("確定開始")
 
         assert env.state is None, "沒有後續選項時照原本的方式收尾"
         assert env.quick_reply == []
@@ -85,8 +82,13 @@ class TestHandoff:
 
         env.send_text("做成影片")
 
-        assert env.state_is("animate", "waiting_confirm"), "交棒後由 animate 接手確認"
-        assert f"{ANIMATE_COST} 點" in env.last_text
+        # 交棒後由 animate 接手，拿到成品當輸入就直接開始做影片並扣點
+        assert env.member.deductions[-1] == {
+            "amount": ANIMATE_COST, "feature": "animate", "description": "照片動起來"
+        }
+        pushed = [m for m in env.messages if m["kind"] == "push"]
+        assert pushed and pushed[-1]["type"] == "VideoSendMessage", "交棒後直接產出影片"
+        assert env.state is None
 
     def test_handoff_feeds_the_result_not_the_original(self, env):
         """接著做的是「剛上好色的那張」，不是用戶原本的黑白照"""
@@ -114,13 +116,14 @@ class TestHandoff:
         assert env.member.deductions == [{"amount": COLORIZE_COST, "feature": "colorize",
                                           "description": "彩色化圖片"}], "按了不用了不該再扣點"
 
-    def test_no_charge_until_the_next_flow_is_confirmed(self, env):
+    def test_edit_handoff_waits_for_a_description_before_charging(self, env):
         colorize_a_photo(env)
         before = env.member.points
 
-        env.send_text("做成影片")
+        env.send_text("再修一下")
 
-        assert env.member.points == before, "交棒只是進到確認階段，還不扣點"
+        assert env.state_is("edit", "waiting_description"), "交棒到 edit 還要先給描述"
+        assert env.member.points == before, "還沒給描述、資訊不足，就不扣點"
 
     def test_expired_result_asks_for_the_photo_again(self, env):
         """成品過了保存期就取不回來，要講清楚而不是讓按鈕沒反應"""
@@ -153,7 +156,7 @@ class TestResultSurvives:
         colorize_a_photo(env)
         archived_before = dict(env.archived_objects)
 
-        env.send_text("做成影片")
+        env.send_text("再修一下")
 
         assert env.archived_objects == archived_before, "交棒不得動到 results/ 裡的成品"
 

@@ -7,7 +7,9 @@
    （在 config/settings.yml 的 animate.input.default_prompt），不給選項。
    對長輩產品而言，穩定遠比花俏重要，而且少一個要思考的步驟。
 
-2. **一定要確認才扣點**。這是最貴的功能（預設 25 點），不能讓人手滑。
+2. **收到照片就直接開始，不再多問一次**。這是最貴的功能（預設 25 點），
+   所以扣點金額在進入功能的第一句話就講明白（見 _handle_request），讓用戶
+   在按下上傳前就知道成本；上傳即代表確認，少一步摩擦。
 
 3. **輸出是影片**，所以推的是 VideoSendMessage。LINE 規定影片訊息一定要附
    縮圖網址，且由 LINE 自己在推送後去抓——所以縮圖用「用戶原本那張照片」，
@@ -23,13 +25,11 @@ from .replicate_feature import ReplicateImageFeature
 
 logger = get_logger("animate")
 
-# 狀態機：waiting_image -> waiting_confirm -> processing
+# 狀態機：waiting_image -> processing（收到照片就開始，不再有確認關卡）
 STATE_WAITING_IMAGE = "waiting_image"
-STATE_WAITING_CONFIRM = "waiting_confirm"
 STATE_PROCESSING = "processing"
 
 CMD_CANCEL = "取消"
-CMD_CONFIRM = "確定開始"
 
 # 縮圖要撐到 LINE 來抓；一天綽綽有餘，之後由 cleanup_storage.py 回收
 PREVIEW_URL_TTL_SECONDS = 86400
@@ -49,12 +49,6 @@ class AnimateFeature(ReplicateImageFeature):
         return "animate"
 
     # ---- Quick Reply ----
-
-    def _confirm_quick_reply(self) -> QuickReply:
-        return QuickReply(items=[
-            QuickReplyButton(action=MessageAction(label="✅ 確定開始", text=CMD_CONFIRM)),
-            QuickReplyButton(action=MessageAction(label="❌ 取消", text=CMD_CANCEL)),
-        ])
 
     def _cancel_quick_reply(self) -> QuickReply:
         return QuickReply(items=[
@@ -101,9 +95,6 @@ class AnimateFeature(ReplicateImageFeature):
                 )
                 return None
 
-            if current_state == STATE_WAITING_CONFIRM and message == CMD_CONFIRM:
-                return self._handle_confirm(reply_token, user_id, event, state_data)
-
         except Exception:
             logger.exception("AnimateFeature handle_text error")
 
@@ -112,11 +103,11 @@ class AnimateFeature(ReplicateImageFeature):
     # ---- 圖片入口 ----
 
     def can_handle_image(self, user_id: str) -> bool:
-        """等圖片時收圖；已經有圖時收圖代表「換一張」"""
+        """等圖片時收圖；收到就直接開始做，不再有換圖／確認的中間狀態"""
         user_state = self.get_user_state(user_id) or {}
         if user_state.get("feature") != self.name:
             return False
-        return user_state.get("state") in (STATE_WAITING_IMAGE, STATE_WAITING_CONFIRM)
+        return user_state.get("state") == STATE_WAITING_IMAGE
 
     def handle_image(self, event: dict) -> dict:
         user_id = self.get_user_id(event)
@@ -126,33 +117,26 @@ class AnimateFeature(ReplicateImageFeature):
         user_state = self.get_user_state(user_id) or {}
         if user_state.get("feature") != self.name:
             return None
-        current_state = user_state.get("state")
-        if current_state not in (STATE_WAITING_IMAGE, STATE_WAITING_CONFIRM):
+        if user_state.get("state") != STATE_WAITING_IMAGE:
             return None
 
         if self.reply_maintenance_if_unavailable(reply_token, user_id, event, clear_state=True):
             return None
 
-        previous_data = user_state.get("data") or {}
-        is_replacement = current_state == STATE_WAITING_CONFIRM
-
         try:
             image_bytes = self.download_image(message_id)
             stash = self.stash_image(image_bytes)
-            if is_replacement:
-                self.discard_stashed_image(previous_data)
-            self._ask_to_confirm(reply_token, user_id, event, stash, is_replacement=is_replacement)
+            self._start_processing(reply_token, user_id, event, stash)
         except Exception:
             logger.exception(f"照片動起來 handle_image 失敗: {user_id}")
-            self.discard_stashed_image(previous_data)
             self.clear_user_state(user_id)
             self._reply(reply_token, user_id, event, "處理的時候出了點問題，麻煩晚一點再試。")
 
         return None
 
     def begin_from_stash(self, reply_token, user_id, event, stash: dict):
-        """交棒入口：用戶先傳圖、再選「讓照片動起來」"""
-        self._ask_to_confirm(reply_token, user_id, event, stash)
+        """交棒入口：用戶先傳圖、再選「讓照片動起來」→ 直接開始做"""
+        self._start_processing(reply_token, user_id, event, stash)
 
     # ---- 各階段 ----
 
@@ -171,21 +155,8 @@ class AnimateFeature(ReplicateImageFeature):
         )
         return None
 
-    def _ask_to_confirm(self, reply_token, user_id, event, stash: dict, is_replacement=False):
-        self.set_user_state(user_id, STATE_WAITING_CONFIRM, stash)
-        headline = (
-            "好，換成這張新的了。"
-            if is_replacement
-            else "照片收到了。"
-        )
-        self._reply(
-            reply_token, user_id, event,
-            f"{headline}\n\n我會讓照片裡的人動起來，做成一段大約 5 秒的影片。\n\n"
-            f"開始之後會扣 {self.required_points} 點，確定嗎？",
-            self._confirm_quick_reply()
-        )
-
-    def _handle_confirm(self, reply_token, user_id, event, state_data: dict) -> dict:
+    def _start_processing(self, reply_token, user_id, event, state_data: dict) -> dict:
+        """收到照片就直接做影片：取暫存圖 → 產縮圖 → 背景計費處理"""
         try:
             if not self.has_stashed_image(state_data):
                 self.clear_user_state(user_id)
