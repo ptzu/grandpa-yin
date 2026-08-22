@@ -1,3 +1,4 @@
+import json
 import os
 import time
 import uuid
@@ -32,7 +33,7 @@ from src.features.member_feature import MemberFeature
 from src.features.gift_feature import GiftFeature
 from src.features.followup_feature import FollowUpFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
-from src.models.database import init_database, get_session
+from src.models.database import init_database, get_session, check_connection
 from src.models.payment_order import PaymentOrder
 from src.services.member_service import MemberService
 from src.services.gift_card_service import GiftCardService
@@ -315,6 +316,31 @@ def index():
     return Response("銀爺爺服務運作中。\n", mimetype="text/plain; charset=utf-8")
 
 
+@app.route("/health", methods=["GET"])
+def health():
+    """外部監控（UptimeRobot 之類）用的健康檢查。
+
+    只回應 HTTP 而不去碰資料庫的健康檢查，在 Supabase 被暫停或連線池耗盡時
+    照樣回 200——而那正是最需要有人被叫醒的時候。所以這裡真的查一次 DB。
+
+    失敗只寫 log、不驚動 Sentry：監控系統本身就是通知管道，再從這裡送一次
+    只會每隔幾分鐘重複一則同樣的事件；而且這裡失敗多半是外部狀況（專案被
+    暫停、網路），不是程式的例外。真正處理訊息時遇到的錯誤仍照常進 Sentry。
+
+    刻意不吐版本、設定或錯誤細節——這條路徑是公開的，誰都打得到。
+    """
+    checks = {
+        "initialized": _initialized,
+        "database": check_connection(),
+    }
+    healthy = all(checks.values())
+    return Response(
+        json.dumps({"status": "ok" if healthy else "degraded", "checks": checks}),
+        status=200 if healthy else 503,
+        mimetype="application/json",
+    )
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     # 每個 request 一個追蹤 ID，log、Sentry 事件與背景工作都會帶上
@@ -352,7 +378,6 @@ def webhook():
         handler.parser.parse(body, signature)
 
         # 解析請求內容
-        import json
         events = json.loads(body).get('events', [])
 
         for event in events:
