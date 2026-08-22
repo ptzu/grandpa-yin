@@ -411,8 +411,10 @@ def test_ready_to_send_is_a_flex_card_with_a_send_button(monkeypatch):
 
     msg = env.publisher.messages[-1]
     assert msg["type"] == "FlexSendMessage", "要是 Flex 卡片，不是純文字"
-    assert "付款完成" in msg.get("alt_text", "")
-    assert "還沒送出" not in msg.get("alt_text", ""), "不再嘮叨還沒送出"
+    alt = msg.get("alt_text", "")
+    assert "禮物卡" in alt, "標記這是禮物卡"
+    assert "謝謝您的購買" in alt, "跟自用購買完成一致的感謝"
+    assert "還沒送出" not in alt, "不再嘮叨還沒送出"
 
 
 # ---------------------------------------------- 送禮方從頭到尾看不到卡號

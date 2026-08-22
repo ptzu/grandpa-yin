@@ -83,14 +83,16 @@ class GiftFeature(BaseFeature):
             return False
         link = f"https://liff.line.me/{liff_id}?p=share&no={order_no}"
         message = FlexSendMessage(
-            alt_text=f"🎁 付款完成！您買好了 {points} 點禮物，點這裡送給朋友",
+            alt_text=f"銀爺爺點數・禮物卡：謝謝您的購買 ☺️ 您買好了 {points} 點禮物，點這裡送給朋友",
             contents={
                 "type": "bubble",
                 "body": {
                     "type": "box", "layout": "vertical", "spacing": "md",
                     "contents": [
                         {"type": "text", "text": "🎁", "size": "xxl", "align": "center"},
-                        {"type": "text", "text": "付款完成", "size": "xl",
+                        {"type": "text", "text": "銀爺爺點數・禮物卡", "size": "sm",
+                         "align": "center", "color": "#aaaaaa"},
+                        {"type": "text", "text": "謝謝您的購買 ☺️", "size": "xl",
                          "weight": "bold", "align": "center"},
                         {"type": "text", "text": f"您買好了 {points} 點禮物",
                          "size": "md", "align": "center", "color": "#666666",
