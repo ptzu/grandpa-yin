@@ -153,8 +153,8 @@ class FakeReplicateClient:
         self.calls = []
         self.fail_with = fail_with
 
-    def run(self, model, input_dict):
-        self.calls.append({"model": model, "input": input_dict})
+    def run(self, model, input_dict, timeout=None):
+        self.calls.append({"model": model, "input": input_dict, "timeout": timeout})
         if self.fail_with:
             raise self.fail_with
         return FAKE_OUTPUT_URL

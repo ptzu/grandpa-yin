@@ -37,6 +37,12 @@ _LOADING_MIN = 5
 _LOADING_MAX = 60
 _LOADING_STEP = 5
 
+# 模型呼叫的整體等待上限。這道防線要砍的是「永遠不會回來」的工作，不是「今天
+# 比較慢」的工作——誤砍等於白白退點又讓用戶重來，所以預設抓得寬鬆。
+DEFAULT_TIMEOUT_SECONDS = 300
+_TIMEOUT_MIN = 30
+_TIMEOUT_MAX = 1800
+
 
 class SettingsError(RuntimeError):
     """設定檔有誤。訊息會直接呈現給操作者，寫清楚哪個欄位、該怎麼改。"""
@@ -52,6 +58,7 @@ class ModelConfig:
     loading_seconds: int
     image_field: str
     image_is_list: bool
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     prompt_field: Optional[str] = None
     default_prompt: Optional[str] = None
     extra_input: dict = field(default_factory=dict)
@@ -107,6 +114,14 @@ def _parse_feature(feature: str, section) -> ModelConfig:
             f"{_LOADING_STEP} 的倍數（LINE 的限制），實際是 {loading_seconds!r}"
         )
 
+    timeout_seconds = section.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
+    if (not isinstance(timeout_seconds, int) or isinstance(timeout_seconds, bool)
+            or not _TIMEOUT_MIN <= timeout_seconds <= _TIMEOUT_MAX):
+        raise SettingsError(
+            f"{feature}.timeout_seconds 必須是 {_TIMEOUT_MIN}～{_TIMEOUT_MAX} 之間的整數"
+            f"（模型跑多久算吊死），實際是 {timeout_seconds!r}"
+        )
+
     input_section = section.get("input")
     if not isinstance(input_section, dict):
         raise SettingsError(
@@ -152,6 +167,7 @@ def _parse_feature(feature: str, section) -> ModelConfig:
         model=model,
         cost=cost,
         loading_seconds=loading_seconds,
+        timeout_seconds=timeout_seconds,
         image_field=image_field,
         image_is_list=image_is_list,
         prompt_field=prompt_field,
@@ -161,16 +177,20 @@ def _parse_feature(feature: str, section) -> ModelConfig:
 
 
 def _apply_env_overrides(config: ModelConfig) -> ModelConfig:
-    """Let Railway Variables override model and cost without a redeploy.
+    """Let Railway Variables override model, cost and timeout without a redeploy.
 
-    Only these two scalars are overridable — the field mapping belongs with the
+    Only these scalars are overridable — the field mapping belongs with the
     model it describes, and splitting them across two places invites a mismatch.
+    Timeout is in the list because the moment it matters is an incident: the
+    model got slower, jobs are being cancelled, and redeploying to widen the
+    limit is the slowest possible fix.
     """
     prefix = config.feature.upper()
     model = os.getenv(f"{prefix}_MODEL")
     cost = os.getenv(f"{prefix}_COST")
+    timeout = os.getenv(f"{prefix}_TIMEOUT")
 
-    if not model and not cost:
+    if not model and not cost and not timeout:
         return config
 
     changes = {}
@@ -183,6 +203,14 @@ def _apply_env_overrides(config: ModelConfig) -> ModelConfig:
         except ValueError:
             raise SettingsError(f"環境變數 {prefix}_COST 必須是整數，實際是 {cost!r}")
         logger.info(f"{config.feature}.cost 被環境變數 {prefix}_COST 覆寫為 {cost}")
+    if timeout:
+        try:
+            changes["timeout_seconds"] = int(timeout)
+        except ValueError:
+            raise SettingsError(f"環境變數 {prefix}_TIMEOUT 必須是整數，實際是 {timeout!r}")
+        logger.info(
+            f"{config.feature}.timeout_seconds 被環境變數 {prefix}_TIMEOUT 覆寫為 {timeout}"
+        )
 
     return ModelConfig(**{**config.__dict__, **changes})
 
@@ -442,7 +470,8 @@ def main():
         prompt = c.prompt_field or "（不送描述）"
         print(f"  {name}")
         print(f"    模型：{c.model}")
-        print(f"    點數：{c.cost} 點　載入動畫：{c.loading_seconds} 秒")
+        print(f"    點數：{c.cost} 點　載入動畫：{c.loading_seconds} 秒"
+              f"　逾時：{c.timeout_seconds} 秒")
         print(f"    輸入欄位：{c.image_field}"
               f"{'（陣列）' if c.image_is_list else '（單值）'}　描述欄位：{prompt}")
         if c.extra_input:

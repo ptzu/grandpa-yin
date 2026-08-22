@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 from contextlib import contextmanager
 
@@ -49,6 +49,25 @@ def init_database():
     logger.info("資料庫連線初始化完成")
     
     return _engine
+
+
+def check_connection() -> bool:
+    """跑一次最輕的查詢，確認資料庫真的還在。
+
+    給 /health 用。連線池裡有連線不代表 Postgres 還活著——Supabase 專案被
+    暫停、連線被中間層砍掉時尤其如此——所以要真的來回一趟。
+
+    失敗回 False 而不是拋出：呼叫端要的是「能不能服務」這個答案，不是例外。
+    """
+    if _SessionFactory is None:
+        return False
+    try:
+        with get_session() as session:
+            session.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        logger.warning("資料庫健康檢查失敗", exc_info=True)
+        return False
 
 
 @contextmanager

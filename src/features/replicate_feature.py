@@ -240,8 +240,14 @@ class ReplicateImageFeature(BaseFeature):
         return self.result_archive.archive(output_url) or output_url
 
     def run_replicate(self, input_dict: dict) -> str:
-        """呼叫本功能的 Replicate 模型並取得結果圖片 URL"""
-        return self.replicate.run(self.replicate_model, input_dict)
+        """呼叫本功能的 Replicate 模型並取得結果圖片 URL
+
+        時限由設定檔的 timeout_seconds 決定：影片模型本來就比圖片模型久，
+        用同一個數字不是砍太早就是等太久。
+        """
+        return self.replicate.run(
+            self.replicate_model, input_dict, timeout=self.config.timeout_seconds
+        )
 
     def build_model_input(self, image_bytes: bytes, prompt: str = None) -> dict:
         """依設定檔的欄位對應組出模型輸入（不同模型欄位名稱不同）"""

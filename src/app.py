@@ -1,3 +1,4 @@
+import json
 import os
 import time
 import uuid
@@ -32,7 +33,7 @@ from src.features.member_feature import MemberFeature
 from src.features.gift_feature import GiftFeature
 from src.features.followup_feature import FollowUpFeature
 from src.features.photo_intent_feature import PhotoIntentFeature
-from src.models.database import init_database, get_session
+from src.models.database import init_database, get_session, check_connection
 from src.models.payment_order import PaymentOrder
 from src.services.member_service import MemberService
 from src.services.gift_card_service import GiftCardService
@@ -315,6 +316,31 @@ def index():
     return Response("銀爺爺服務運作中。\n", mimetype="text/plain; charset=utf-8")
 
 
+@app.route("/health", methods=["GET"])
+def health():
+    """外部監控（UptimeRobot 之類）用的健康檢查。
+
+    只回應 HTTP 而不去碰資料庫的健康檢查，在 Supabase 被暫停或連線池耗盡時
+    照樣回 200——而那正是最需要有人被叫醒的時候。所以這裡真的查一次 DB。
+
+    失敗只寫 log、不驚動 Sentry：監控系統本身就是通知管道，再從這裡送一次
+    只會每隔幾分鐘重複一則同樣的事件；而且這裡失敗多半是外部狀況（專案被
+    暫停、網路），不是程式的例外。真正處理訊息時遇到的錯誤仍照常進 Sentry。
+
+    刻意不吐版本、設定或錯誤細節——這條路徑是公開的，誰都打得到。
+    """
+    checks = {
+        "initialized": _initialized,
+        "database": check_connection(),
+    }
+    healthy = all(checks.values())
+    return Response(
+        json.dumps({"status": "ok" if healthy else "degraded", "checks": checks}),
+        status=200 if healthy else 503,
+        mimetype="application/json",
+    )
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     # 每個 request 一個追蹤 ID，log、Sentry 事件與背景工作都會帶上
@@ -352,7 +378,6 @@ def webhook():
         handler.parser.parse(body, signature)
 
         # 解析請求內容
-        import json
         events = json.loads(body).get('events', [])
 
         for event in events:
@@ -774,11 +799,21 @@ def gift_card_status():
     try:
         with get_session() as session:
             card = gift_card_service.card_for_order_no(session, order_no)
+            # 卡還沒開時要能分辨「回調還沒到」與「付款失敗」——前者該繼續等，
+            # 後者該叫用戶重刷。差別只有訂單狀態知道。
+            order_status = None
+            if card is None:
+                order = (session.query(PaymentOrder)
+                         .filter_by(merchant_trade_no=order_no).first())
+                order_status = order.status if order is not None else None
     except Exception:
         logger.exception("查詢禮物卡失敗")
         abort(500)
 
     if card is None:
+        # 付款失敗是終局，回 failed 讓前端停止空轉、直接請用戶重刷
+        if order_status == "failed":
+            return {"ready": False, "failed": True}
         return {"ready": False}
 
     return {
@@ -802,6 +837,10 @@ def pay_done():
     order_no = (request.form.get("MerchantTradeNo")
                 or request.args.get("no", "")).strip()
     points = None
+    # 綠界不論付款成功或失敗都會把用戶導回這一頁，所以不能假設「來到這頁＝
+    # 已付款」。狀態直接以訂單為準：paid＝成功、failed＝刷卡被拒（沒扣款）、
+    # 其餘（pending／查無）＝回調還沒到，顯示處理中而不謊稱完成。
+    status = "pending"
     if order_no:
         try:
             with get_session() as session:
@@ -809,9 +848,10 @@ def pay_done():
                          .filter_by(merchant_trade_no=order_no).first())
                 if order is not None:
                     points = order.points
+                    status = order.status
         except Exception:
-            logger.exception("查詢付款訂單點數失敗")
-    return render_template("pay_done.html", points=points)
+            logger.exception("查詢付款訂單狀態失敗")
+    return render_template("pay_done.html", points=points, status=status)
 
 
 def handle_text_message(event):

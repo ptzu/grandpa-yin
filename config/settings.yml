@@ -25,6 +25,9 @@
 #   cost             每次使用扣幾點
 #   loading_seconds  LINE 轉圈動畫顯示幾秒（5 的倍數，5～60；抓比實際處理
 #                    時間略長一點，動畫會在結果送出時自動停止）
+#   timeout_seconds  等模型多久算它吊死（30～1800，預設 300）。逾時會取消該
+#                    次呼叫、退點給用戶，並釋放那個處理名額。抓寬鬆一點：這
+#                    是給「永遠不會回來」用的，不是給「今天比較慢」用的
 #   input.image_field    圖片要放進模型的哪個欄位
 #   input.image_is_list  該欄位吃陣列（true）還是單一值（false）
 #   input.prompt_field   文字描述放哪個欄位；不吃描述的模型留 null
@@ -54,6 +57,8 @@ features:
     model: prunaai/p-video
     cost: 50
     loading_seconds: 60
+    # 影片生成本來就比圖片久，用圖片的 300 秒會砍到正常的工作
+    timeout_seconds: 600
     input:
       image_field: image
       image_is_list: false

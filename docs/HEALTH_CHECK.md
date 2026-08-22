@@ -43,11 +43,11 @@
 
 以下多為「韌性 / 營運」層級，非阻斷性，建議排入：
 
-1. 🟠 **`/health` endpoint + 外部監控**——服務掛掉目前只能靠用戶回報。加檢查 DB 連線的 `/health` 配 UptimeRobot。
+1. ✅ **`/health` endpoint**（2026-08-22 完成）——`GET /health` 真的查一次資料庫（`SELECT 1`）再決定回 200 還是 503。只驗證 HTTP 活著的健康檢查在 Supabase 被暫停或連線池耗盡時照樣回 200，而那正是最需要有人被叫醒的時候。DB 不通時 0.07 秒就回 503，不會讓監控 timeout。失敗只寫 log 不進 Sentry（監控系統本身就是通知管道，否則每幾分鐘重複同一則事件）。**外部監控仍待接上**——設定見[部署文件](./DEPLOYMENT.md)的「外部監控」。
 2. 🟡 **推送失敗的自動退點**——「處理成功但 push 失敗」用戶會白扣點，目前靠人工補償。
-3. 🟡 **Supabase connection pooler（port 6543）**——根治連線池上限（連線總量 = 2 processes × pool + 圖片執行緒）。
+3. ✅ **Supabase connection pooler**（2026-08-22 確認線上已在用）——走 **Session pooler**（pooler 主機 :5432），不是 6543：transaction mode 不支援 prepared statement，與 SQLAlchemy 的長駐連線池相衝，見[部署文件](./DEPLOYMENT.md) 5.2。連線總量 = 2 processes ×（pool 5 + overflow 10）+ 圖片執行緒，經 pooler 後不再直接頂到 Postgres 的連線上限，之後要調高 `IMAGE_WORKERS` 也有空間。
 4. 🟡 **`transactions` 加 `source/created_by`**——帳目稽核時分辨寫入來源（linebot / admin / 手動 SQL）。
-5. 🟢 **Replicate model ID 改環境變數 + `run_replicate` 加 timeout**——換模型免部署、避免 worker 長時間吊死（`replicate.run()` 無 client-side timeout）。
+5. ✅ **Replicate model ID 改設定檔 + `run_replicate` 加 timeout**（timeout 於 2026-08-22 完成）——`replicate.run()` 內部走 `prediction.wait()`，那是沒有上限的輪詢，模型吊住就永久佔住一個圖片 worker。改為自行 `predictions.create` + 限時輪詢：逾時取消該次 prediction（省下 Replicate 那邊的計費）並拋 `ReplicateTimeout`，由 `billing.py` 既有的例外路徑退點。另加 30 秒的單一 HTTP 請求上限——連線後對方不再說話是另一種吊死，整體時限的輪詢迴圈根本回不來。時限每個功能各自設定（影片 600 秒、圖片 300 秒），線上可用 `*_TIMEOUT` 環境變數覆寫。
 6. 🟢 **跨 process 的 webhook 去重**——去重表（`app.py` 的 `_processed_events`）在**記憶體**，`-w 2` 下兩個 process 各存一份，同一個 event 重送打到另一個就會漏擋、重複扣點。
 
    **但目前這個洞是關著的**：它唯一要擋的是 LINE 重送，而 LINE Console 的 **Webhook redelivery 是關閉的**（2026-08-19 確認），關閉時 LINE 不重送，這段程式碼是一層閒置的保險。因此列為 🟢，不是 🟠。

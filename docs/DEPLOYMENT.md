@@ -75,6 +75,7 @@ Railway 改 Variables **不會**自動重啟舊容器的 process 內快取，改
 | `WELCOME_POINTS` | | **覆寫** `config/settings.yml` 的新會員贈點 |
 | `COLORIZE_COST` / `EDIT_COST` | | **覆寫** `config/settings.yml` 的點數（見下方） |
 | `COLORIZE_MODEL` / `EDIT_MODEL` | | **覆寫** `config/settings.yml` 的模型 ID |
+| `COLORIZE_TIMEOUT` / `EDIT_TIMEOUT` / `ANIMATE_TIMEOUT` | | **覆寫** 等模型多久算吊死（秒）。模型突然變慢、成品開始被取消時的止血鈕，不必部署 |
 | `ECPAY_MERCHANT_ID` | | 綠界商店代號。以下四個 `ECPAY_*` **要嘛全設、要嘛全不設**；缺任一個都視為未設定，儲值自動停用，服務其餘部分照常。測試站可直接用綠界公開的測試特店（見 `.env.example`），正式站要到[廠商後台](https://vendor.ecpay.com.tw/)→ 系統開發管理 → 系統介接設定 → 介接資訊 拿 |
 | `ECPAY_HASH_KEY` | | 綠界 HashKey（**密鑰**，只放環境變數，絕不進 `settings.yml`——那個檔案在 git 裡） |
 | `ECPAY_HASH_IV` | | 綠界 HashIV（**密鑰**，同上） |
@@ -105,7 +106,7 @@ python3 -m src.core.settings
 
 同一道檢查掛在 Railway 的 `preDeployCommand`（見 `railway.json`）：**設定有誤會中止部署**，不會帶著壞設定上線。這道防線是必要的——應用程式本身會吞掉啟動錯誤並在每次請求重試，少了它，壞設定會讓服務看起來活著、但每個 webhook 都回 500。
 
-> 上表的 `*_COST` / `*_MODEL` 環境變數**優先於設定檔**，用於線上不部署就調價。反過來說，只要 Railway 上還留著 `EDIT_COST`，改 `config/settings.yml` 的點數就不會有效果——調完記得把變數移除。`python3 -m src.core.settings` 印的是套用覆寫後的實際值，可用來確認。
+> 上表的 `*_COST` / `*_MODEL` / `*_TIMEOUT` 環境變數**優先於設定檔**，用於線上不部署就調價。反過來說，只要 Railway 上還留著 `EDIT_COST`，改 `config/settings.yml` 的點數就不會有效果——調完記得把變數移除。`python3 -m src.core.settings` 印的是套用覆寫後的實際值，可用來確認。
 
 ---
 
@@ -320,7 +321,7 @@ DATABASE_URL=<線上連線字串> alembic stamp head
 | 3 | 重複處理 / 重複扣點 | P0 | 先確認 Console 的 **Webhook redelivery**：關著就不是 LINE 重送造成的（去重表雖在記憶體、`-w 2` 跨 process 有缺口，但沒有重送就不會被觸發），往用戶連點兩次或程式路徑查；退點要**雙寫** transaction |
 | 4 | 扣點但沒收到圖 | P1 | 查 `usage_logs`：`failed`=已自動退點；只有 `completed`=push 失敗，手動退點 |
 | 5 | DB 連不上 | P1 | Supabase 專案被 **Paused**（免費 7 天）→ Restore；恢復後**要 Restart Railway** |
-| 6 | 連線池耗盡 | P1 | `pg_stat_activity` 查連線；`pg_terminate_backend` 清卡死；根治用 pooler(6543) |
+| 6 | 連線池耗盡 | P1 | `pg_stat_activity` 查連線；`pg_terminate_backend` 清卡死；根治是確認 `DATABASE_URL` 走 **Session pooler**（見 5.2）——不是 6543，那條給 serverless 用，與 SQLAlchemy 的連線池相衝 |
 | 7 | 點數帳目對不上 | P2 | 以 `transactions` 流水為準，補 adjustment transaction |
 | 8 | Storage 故障 | P2 | 清空 `SUPABASE_URL` 退回 base64 模式；查 bucket 名稱 / service role key |
 | 9~11 | Replicate 額度/變慢/模型下架 | P1~P2 | 儲值 / 觀察（有界佇列 + 失敗退點自保）/ 改 model input |
@@ -402,13 +403,37 @@ SELECT id, 10, 'silver-grandpa', points_balance, '補償（incident YYYY-MM-DD�
 
 ### 待補強清單（來自事故演練）
 
-1. **`/health` endpoint + 外部監控**（UptimeRobot）——目前掛掉只能靠用戶回報。
+1. ~~**`/health` endpoint**~~——✅ 已完成（2026-08-22），見下方「外部監控」。**接上 UptimeRobot 仍待手動設定。**
 2. **跨 process 的 webhook 去重**——記憶體去重在 `-w 2` 下有缺口。**目前 Webhook redelivery 關閉，沒有重送就不會被觸發，優先度低**；代價是失敗的 webhook 不重送＝那則訊息永久消失。想開 redelivery 換取不漏訊息，**先**改成 Postgres `processed_events` 表再開開關（見[健檢報告](./HEALTH_CHECK.md)第三章第 6 項）。
 3. **推送失敗的自動退點**——目前「處理成功但 push 失敗」會白扣點，靠人工補償。
 4. ~~**Supabase connection pooler**~~——✅ 已納入建置步驟（見 5.2，用 Session pooler）。既有環境若仍是直連，改連線字串即可。
 5. **`transactions` 加 `source/created_by`**——帳目稽核分辨寫入來源。
 6. ~~**Storage bucket 生命週期清理**~~——✅ 已完成（2026-08-10），見下方「排程維運」。
-7. **`run_replicate` 加 timeout**——`replicate.run()` 無 client-side timeout，模型吊住會佔住 worker。（model ID 改設定檔的部分已完成，見 `config/settings.yml`。）
+7. ~~**`run_replicate` 加 timeout**~~——✅ 已完成（2026-08-22）。等待改為自行輪詢並限時，逾時會取消該次 prediction（不再被 Replicate 計費）並走既有的退點路徑。時限見 `config/settings.yml` 的 `timeout_seconds`，線上可用 `*_TIMEOUT` 環境變數覆寫。
+
+### 外部監控
+
+`GET /health` 回 JSON 與狀態碼，給 UptimeRobot 這類服務用：
+
+```
+200  {"status": "ok",       "checks": {"initialized": true,  "database": true}}
+503  {"status": "degraded", "checks": {"initialized": true,  "database": false}}
+```
+
+它**真的查一次資料庫**才回答，不是只證明 HTTP 還活著——Supabase 免費專案被暫停、連線池耗盡時，只回應 HTTP 的健康檢查照樣回 200，而那正是最需要有人被叫醒的時候。DB 不通時約 0.07 秒就回 503。
+
+檢查失敗只寫 log、**不送 Sentry**：監控系統本身就是通知管道，再送一次只會每隔幾分鐘重複同一則事件。真正處理訊息時遇到的錯誤仍照常進 Sentry。回應刻意只有布林值，不帶版本、設定或錯誤細節——這條路徑是公開的。
+
+UptimeRobot 設定：
+
+| 設定 | 值 |
+|---|---|
+| Monitor Type | HTTP(s) |
+| URL | `https://<你的網域>/health` |
+| Monitoring Interval | 5 分鐘（免費方案的最短間隔） |
+| Alert When | Status Code **not** 200 |
+
+> 別把監控指向 `/`——那條路由不看資料庫，永遠回 200。
 
 ### 排程維運（Railway cron）
 
@@ -433,9 +458,19 @@ bucket 裡有兩種東西，壽命差一個數量級：
 
 | 設定 | 值 |
 |---|---|
-| Start Command | `python scripts/cleanup_storage.py --apply` |
+| Start Command | `python scripts/cleanup_user_states.py 24; python scripts/cleanup_storage.py --apply` |
 | Cron Schedule | `0 18 * * *`（UTC，約台灣時間凌晨 2 點） |
 | 環境變數 | 與 web service 相同（至少要 `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`） |
+
+兩支腳本用 `;` 而不是 `&&` 串：狀態清理失敗不該連帶讓 storage 停止回收，那是這個 cron 存在的主要理由。順序不影響正確性（storage 的判定同時檢查「夠舊」和「沒被引用」），但先清狀態能讓當天多回收一些剛失去引用的圖。
+
+建立步驟（Railway 面板）：
+
+1. 專案裡 **+ New → GitHub Repo**，選同一個 repo（Railway 會另開一個 service，與 web 共用程式碼但獨立執行）
+2. 該 service 的 **Settings → Deploy → Cron Schedule** 填上排程；**Start Command** 填上表那行
+3. **Settings → Deploy → Restart Policy** 設為 **Never**——cron service 跑完就該結束，預設的重啟政策會讓它一直重跑
+4. **Variables** 從 web service 複製（Railway 支援 shared variables，或直接貼上）
+5. 首次先把 Start Command 的 `--apply` 拿掉手動 Deploy 一次，看 log 的盤點數字合理再加回去
 
 > ⚠️ 別把 cron 設在主 web service 上——cron service 執行完必須結束，web service 要常駐。
 >
