@@ -47,14 +47,20 @@ SUCCESS_RTN_CODE = "1"
 ECPAY_ACK = "1|OK"
 ECPAY_REJECT = "0|error"
 
-# `credited` means "this callback settled the order" — points granted for a
-# top-up, or a card issued for a gift. `card` is set only for a gift; `buyer_uid`
-# is the gift buyer's LINE id when known, so the caller can nudge them to send.
-CallbackResult = namedtuple("CallbackResult", "ok credited order reason card buyer_uid")
+# `credited` means "this callback settled the order". Extra fields let the
+# caller push a completion message without touching the (soon-detached) order:
+#   card       — the issued gift card (gift only)
+#   buyer_uid  — the LINE id to notify (gift buyer, or top-up member)
+#   balance    — the member's balance after crediting (top-up only)
+#   points     — points bought, snapshotted (top-up only)
+CallbackResult = namedtuple(
+    "CallbackResult", "ok credited order reason card buyer_uid balance points")
 
 
-def _result(ok, credited, order, reason, card=None, buyer_uid=None):
-    return CallbackResult(ok, credited, order, reason, card, buyer_uid)
+def _result(ok, credited, order, reason, card=None, buyer_uid=None,
+            balance=None, points=None):
+    return CallbackResult(ok, credited, order, reason, card, buyer_uid,
+                          balance, points)
 
 
 KIND_TOPUP = "topup"
@@ -275,17 +281,20 @@ class PaymentService:
                          f"找不到會員 {order.subject_id}")
             return _result(False, False, order, "找不到會員")
 
+        points = order.points
         balance = self._backend.credit(
-            session, subject, order.points,
+            session, subject, points,
             service=SERVICE_NAME,
-            description=f"儲值 {order.points} 點（訂單 {order.merchant_trade_no}）",
+            description=f"儲值 {points} 點（訂單 {order.merchant_trade_no}）",
         )
         self._stamp_settled(order, payload)
+        buyer_uid = self._buyer_uid(session, order)
 
         session.commit()
         logger.info(f"訂單 {order.merchant_trade_no} 入帳完成："
-                    f"+{order.points} 點，餘額 {balance}")
-        return _result(True, True, order, "入帳完成")
+                    f"+{points} 點，餘額 {balance}")
+        return _result(True, True, order, "入帳完成",
+                       buyer_uid=buyer_uid, balance=balance, points=points)
 
     def _settle_gift(self, session, order, payload):
         """A card instead of points — nobody is credited until it is redeemed."""

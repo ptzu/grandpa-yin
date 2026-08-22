@@ -516,13 +516,27 @@ def pay_ecpay_callback():
         # 不回 1|OK，讓綠界重送——這種失敗多半是暫時性的（DB 斷線）
         return ECPAY_REJECT
 
-    # 剛開好的禮物卡、而且知道買家是誰 → 提醒他把禮物送出去（萬一他付完款就
-    # 關了頁面還沒選朋友）。重送的回調 credited=False，不會重複提醒。
-    if result.credited and result.buyer_uid and result.card:
-        _nudge_gift_buyer(result.buyer_uid, result.card,
-                          payload.get("MerchantTradeNo"))
+    # 剛結清、且知道要通知誰 → 推一張完成卡片。重送的回調 credited=False，
+    # 不會重複推。gift 提醒買家送出；topup 告訴買家購買完成 + 餘額。
+    if result.credited and result.buyer_uid:
+        if result.card is not None:
+            _nudge_gift_buyer(result.buyer_uid, result.card,
+                              payload.get("MerchantTradeNo"))
+        else:
+            _notify_topup_done(result.buyer_uid, result.points, result.balance)
 
     return ECPAY_ACK if result.ok else ECPAY_REJECT
+
+
+def _notify_topup_done(buyer_uid, points, balance):
+    """Push the buyer a 'purchase complete' card after a self top-up settles."""
+    feature = feature_registry.get_feature_by_name("member") if feature_registry else None
+    if feature is None:
+        return
+    try:
+        feature.notify_topup_done(buyer_uid, points, balance)
+    except Exception:
+        logger.exception("推播儲值完成卡片失敗")
 
 
 def _nudge_gift_buyer(buyer_uid, card, order_no):

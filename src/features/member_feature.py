@@ -40,6 +40,39 @@ class MemberFeature(BaseFeature):
 
         return None
 
+    def notify_topup_done(self, user_id: str, points: int, balance: int) -> bool:
+        """自用儲值入帳後，推一張「購買完成」卡片：買了幾點 + 目前餘額 + 感謝。
+
+        付款完成頁可能被關掉、或本來就在外部瀏覽器；這則推播讓聊天室裡也留下
+        一張確認，長輩往上滑就看得到自己買了什麼、現在有多少點。
+        """
+        message = FlexSendMessage(
+            alt_text=f"銀爺爺點數：謝謝您的購買 ☺️ 您買了 {points} 點，目前有 {balance} 點",
+            contents={
+                "type": "bubble",
+                "body": {
+                    "type": "box", "layout": "vertical", "spacing": "md",
+                    "contents": [
+                        {"type": "text", "text": "銀爺爺點數", "size": "sm",
+                         "align": "center", "color": "#aaaaaa"},
+                        {"type": "text", "text": "謝謝您的購買 ☺️", "size": "xl",
+                         "weight": "bold", "align": "center"},
+                        {"type": "text", "text": f"您購買了 {points} 點",
+                         "size": "md", "align": "center", "color": "#666666"},
+                        {"type": "separator", "margin": "lg"},
+                        {"type": "box", "layout": "horizontal", "margin": "lg",
+                         "contents": [
+                            {"type": "text", "text": "目前餘額", "size": "md",
+                             "color": "#888888"},
+                            {"type": "text", "text": f"{balance} 點", "size": "md",
+                             "weight": "bold", "align": "end"},
+                         ]},
+                    ],
+                },
+            },
+        )
+        return self.publisher.process_push_message(user_id, message)
+
     def _handle_topup(self, user_id: str, user_name: str, reply_token: str, event: dict):
         """處理儲值：給出付款頁連結與方案"""
         link = self.payment_service.topup_link() if self.payment_service else None

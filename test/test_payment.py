@@ -43,6 +43,11 @@ class FakeBackend:
         self.ledger.append((subject.id, points, description))
         return subject.points_balance
 
+    def provider_uid_map(self, session, subject_ids):
+        if self.subject is not None and self.subject.id in subject_ids:
+            return {self.subject.id: UID}
+        return {}
+
 
 class FakeQuery:
     def __init__(self, rows):

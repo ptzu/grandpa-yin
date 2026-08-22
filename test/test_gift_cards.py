@@ -441,3 +441,35 @@ def test_paid_anonymous_gift_returns_no_buyer_uid():
     result = service.handle_callback(OrderSession(order), paid_callback(order))
 
     assert result.credited and result.buyer_uid is None
+
+
+# ------------------------------------- 自用儲值：回調帶回餘額，供推播完成卡片
+
+
+def test_topup_callback_returns_balance_and_points_for_notice():
+    """自用儲值付款成功 → 回調帶回買家 uid、入帳後餘額、購買點數，供推完成卡片"""
+    from test_payment import FakeBackend as PayFakeBackend  # reuse? no — build here
+    subject = FakeSubject(subject_id="acc-1", points_balance=40)
+    backend = FakeBackend(subject)
+    from src.services.payment_service import PaymentService, KIND_TOPUP
+    from src.core.settings import _parse_payments
+
+    class FakeECPay:
+        api_url = "x"
+        def checkout_params(self, **k): return {"MerchantTradeNo": k["merchant_trade_no"]}
+        def verify(self, p): return True
+
+    settings = _parse_payments({"provider": "ecpay",
+                                "packages": [{"id": "m", "points": 300, "price_twd": 250}]})
+    service = PaymentService(ecpay=FakeECPay(), backend=backend,
+                             settings_provider=lambda: settings)
+    order = FakeOrder(kind=KIND_TOPUP, points=300, subject_id="acc-1")
+    order.amount_twd = 250
+
+    result = service.handle_callback(OrderSession(order), paid_callback(order))
+
+    assert result.credited
+    assert result.card is None, "自用不開卡"
+    assert result.buyer_uid == UID
+    assert result.points == 300
+    assert result.balance == 340, "40 + 300"
