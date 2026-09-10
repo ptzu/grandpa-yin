@@ -43,6 +43,11 @@ DEFAULT_TIMEOUT_SECONDS = 300
 _TIMEOUT_MIN = 30
 _TIMEOUT_MAX = 1800
 
+# 生成 worker pool 的合理範圍。上限只是防手滑打錯，不是政策——真要更大得先
+# 想清楚 Replicate 費用與 DB 池能否負荷（見 docs/OPERATION.md）。
+_WORKERS_MAX = 64
+_QUEUE_MAX = 256
+
 
 class SettingsError(RuntimeError):
     """設定檔有誤。訊息會直接呈現給操作者，寫清楚哪個欄位、該怎麼改。"""
@@ -247,6 +252,59 @@ def _parse_members(section) -> MemberSettings:
 
 
 @dataclass(frozen=True)
+class WorkerPoolSettings:
+    """The image-generation background pool: how many run at once, how many wait."""
+
+    max_workers: int
+    queue_limit: int
+
+    @property
+    def capacity(self) -> int:
+        """Total in-flight before new requests are rejected with the busy message."""
+        return self.max_workers + self.queue_limit
+
+
+def _parse_worker_pool(section) -> WorkerPoolSettings:
+    """No worker_pool section keeps the historical defaults, so old configs stay
+    valid. IMAGE_WORKERS / IMAGE_QUEUE_LIMIT still override for a per-deploy tweak
+    without editing the file (matches how model/cost/timeout work)."""
+    section = section or {}
+    if not isinstance(section, dict):
+        raise SettingsError(
+            f"設定檔的 worker_pool 必須是一組設定（縮排的 key: value），實際是 {type(section).__name__}"
+        )
+
+    def resolved(key, env_name, default, hi):
+        value = section.get(key, default)
+        env_override = os.getenv(env_name)
+        if env_override:
+            try:
+                value = int(env_override)
+            except ValueError:
+                raise SettingsError(f"環境變數 {env_name} 必須是整數，實際是 {env_override!r}")
+            logger.info(f"worker_pool.{key} 被環境變數 {env_name} 覆寫為 {value}")
+        return value
+
+    max_workers = resolved("max_workers", "IMAGE_WORKERS", 4, _WORKERS_MAX)
+    queue_limit = resolved("queue_limit", "IMAGE_QUEUE_LIMIT", 8, _QUEUE_MAX)
+
+    if not isinstance(max_workers, int) or isinstance(max_workers, bool) \
+            or not 1 <= max_workers <= _WORKERS_MAX:
+        raise SettingsError(
+            f"worker_pool.max_workers 必須是 1～{_WORKERS_MAX} 的整數（同時生幾張），"
+            f"實際是 {max_workers!r}"
+        )
+    if not isinstance(queue_limit, int) or isinstance(queue_limit, bool) \
+            or not 0 <= queue_limit <= _QUEUE_MAX:
+        raise SettingsError(
+            f"worker_pool.queue_limit 必須是 0～{_QUEUE_MAX} 的整數（可排隊幾個），"
+            f"實際是 {queue_limit!r}"
+        )
+
+    return WorkerPoolSettings(max_workers=max_workers, queue_limit=queue_limit)
+
+
+@dataclass(frozen=True)
 class PointPackage:
     """One thing a user can buy: a fixed number of points for a fixed price."""
 
@@ -363,6 +421,7 @@ class Settings:
     features: dict
     members: MemberSettings
     payments: PaymentSettings
+    worker_pool: WorkerPoolSettings
 
 
 def load_settings(path: str = None) -> Settings:
@@ -395,6 +454,7 @@ def load_settings(path: str = None) -> Settings:
     }
     members = _parse_members(raw.get("members"))
     payments = _parse_payments(raw.get("payments"))
+    worker_pool = _parse_worker_pool(raw.get("worker_pool"))
 
     logger.info(
         "設定已載入："
@@ -402,8 +462,11 @@ def load_settings(path: str = None) -> Settings:
         + f"、新會員贈點 {members.welcome_points}"
         + (f"、儲值 {payments.provider}（{len(payments.packages)} 種點數包）"
            if payments.enabled else "、儲值未啟用")
+        + f"、生成池 {worker_pool.max_workers}+{worker_pool.queue_limit}"
     )
-    return Settings(features=features, members=members, payments=payments)
+    return Settings(
+        features=features, members=members, payments=payments, worker_pool=worker_pool
+    )
 
 
 _cache = None
@@ -434,6 +497,11 @@ def get_member_settings() -> MemberSettings:
 def get_payment_settings() -> PaymentSettings:
     """Top-up settings; `.enabled` is False when the file has no payments section."""
     return _settings().payments
+
+
+def get_worker_pool_settings() -> WorkerPoolSettings:
+    """Image-generation pool sizing (concurrency + queue)."""
+    return _settings().worker_pool
 
 
 def reset_cache():
@@ -481,6 +549,12 @@ def main():
     bonus = settings.members.welcome_points
     print("  members")
     print(f"    新會員贈點：{bonus} 點" + ("　（0＝不送）" if bonus == 0 else ""))
+    print()
+
+    wp = settings.worker_pool
+    print("  worker_pool")
+    print(f"    同時生圖：{wp.max_workers} 張　可排隊：{wp.queue_limit} 個"
+          f"　容量：{wp.capacity}（per process；-w 2 全站約 2 倍）")
     print()
 
     payments = settings.payments

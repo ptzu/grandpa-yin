@@ -1,12 +1,15 @@
-import os
 import threading
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
 
+from src.core.settings import get_worker_pool_settings
+
 # 圖片處理共用的有界執行緒池：外部 API 變慢時最多堆積有限的工作，
-# 不會無限開執行緒耗盡記憶體與 DB 連線（連鎖失效防護）
-_MAX_WORKERS = int(os.getenv("IMAGE_WORKERS", "4"))
-_MAX_PENDING = int(os.getenv("IMAGE_QUEUE_LIMIT", "8"))
+# 不會無限開執行緒耗盡記憶體與 DB 連線（連鎖失效防護）。
+# 大小來自 config/settings.yml 的 worker_pool（IMAGE_WORKERS / IMAGE_QUEUE_LIMIT 可臨時覆寫）。
+_pool = get_worker_pool_settings()
+_MAX_WORKERS = _pool.max_workers
+_MAX_PENDING = _pool.queue_limit
 
 _executor = ThreadPoolExecutor(max_workers=_MAX_WORKERS, thread_name_prefix="image-worker")
 # 限制「執行中 + 排隊中」的工作總量

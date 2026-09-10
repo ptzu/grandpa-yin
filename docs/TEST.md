@@ -311,18 +311,18 @@ k6 run -e TARGET=$STAGING -e CHANNEL_SECRET=xxx -e MODE=spike test/load/webhook_
 ### T7 — Worker pool 容量與降級（本機，`generation_capacity.py`）
 不走 HTTP。直接 `import` 真實的 `submit_image_task`，餵假的生成函式（sleep 冒充 Replicate，握著一塊圖大小的隨機 bytes），模擬 N 人同時湧入。回答 `/health` 測不到的問題：**第幾個開始「忙碌」、同時真正跑幾個、排隊等多久、握圖吃多少 RAM**。零網路、零費用、零副作用。
 ```bash
-# 預設 IMAGE_WORKERS=4 / IMAGE_QUEUE_LIMIT=8：容量 12，第 13 人起忙碌
+# 用 config 出廠預設（config/settings.yml 的 worker_pool = 8/16，容量 24）
 USERS=100 GEN_SECONDS=40 MB_PER_JOB=3 python3 test/load/generation_capacity.py
 
-# 驗證調大：容量 24，看更多人進得來、RAM 變化
-IMAGE_WORKERS=8 IMAGE_QUEUE_LIMIT=16 USERS=100 python3 test/load/generation_capacity.py
+# 用環境變數臨時覆寫成別的值（例如回到舊的 4/8：容量 12，第 13 人起忙碌）
+IMAGE_WORKERS=4 IMAGE_QUEUE_LIMIT=8 USERS=100 python3 test/load/generation_capacity.py
 ```
 | 變數 | 意義 | 預設 |
 |---|---|---|
 | `USERS` | 同時湧入的人數 | 20 |
 | `GEN_SECONDS` | 假生成耗時（設成真實 Replicate 秒數才擬真） | 6 |
 | `MB_PER_JOB` | 每張輸入圖佔的記憶體（用隨機 bytes 模擬不可壓縮的 JPEG） | 5 |
-| `IMAGE_WORKERS` / `IMAGE_QUEUE_LIMIT` | 覆寫 pool 大小（import 時讀取） | 4 / 8 |
+| `IMAGE_WORKERS` / `IMAGE_QUEUE_LIMIT` | 臨時覆寫 pool 大小 | config `worker_pool`（8 / 16） |
 
 **判準**：超量的人收到「忙碌」（`submit` 回 False）、**不崩**；RAM 隨容量線性成長且在 Railway 上限（48GB）內。
 > 注意：這是**單一 process** 視角；正式環境 `-w 2` 有兩個獨立池，**全站容量 ≈ 這裡的 2 倍**。
@@ -353,8 +353,8 @@ DB 連線全程 **< 20/60**（Supavisor pooler 保護，從未逼近 60）；RAM
 
 | 設定 | 容量（單 process） | 100 人湧入：收下 / 忙碌 | 同時生圖 | 握圖 RAM（本機量） |
 |---|---|---|---|---|
-| 4 / 8（預設） | 12 | 12 / 88 | 4 | +50MB（12×~4MB） |
-| 8 / 16（建議上線值） | 24 | 24 / 76 | 8 | +75MB |
+| 4 / 8（舊預設） | 12 | 12 / 88 | 4 | +50MB（12×~4MB） |
+| 8 / 16（現行 config 預設） | 24 | 24 / 76 | 8 | +75MB |
 
 > 全站 `-w 2` 為 2 倍：8/16 設定下 **同時生圖 16、系統容量 48、可持續 ~24 人/分**。
 
@@ -409,6 +409,6 @@ DB 連線全程 **< 20/60**（Supavisor pooler 保護，從未逼近 60）；RAM
 
 ### 生成路才是真瓶頸（不是 `/health` 的 765/s）
 - 預設 pool **同時只跑 4（全站 8）**、容量 12（全站 24），第 25 人起收到「忙碌」。
-- 建議上線值 **`IMAGE_WORKERS=8` / `IMAGE_QUEUE_LIMIT=16`**（全站同時 16、容量 48、~24 人/分）。
+- 現行 config 預設 **`worker_pool` 8 / 16**（全站同時 16、容量 48、~24 人/分），在 `config/settings.yml` 調整。
 - **不要無腦開大**（例如 100/200）：會拆掉斷路器 → 同時上百筆 Replicate 帳單、DB 池被打爆、LINE 推播限流。「忙碌」訊息是**保護功能**。
 - 更大規模的擴展路徑見 [擴展與運營文件](./OPERATION.md)。

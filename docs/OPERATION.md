@@ -28,37 +28,29 @@
 
 每一階都對應「什麼訊號該升級、做什麼、花多少錢」。**不要跳級或過早升級**——複雜度是有代價的。
 
-### 階段 0 — 起步 / 上線初期
-**規模**：偶發使用，尖峰同時 <12 人生圖。
-**架構**：現狀即可。
+### 階段 0 / 1 — 起步 / 小社團正式上線 ⭐
+**規模**：偶發到偶爾幾十人在幾分鐘內湧入。
+**架構**：repo 出廠預設即為上線甜蜜點。
 ```
-IMAGE_WORKERS=4  IMAGE_QUEUE_LIMIT=8   （預設，全站同時 8 張、容量 24）
-Railway Hobby ($5) · Supabase Nano · gunicorn -w 2 --threads 8
+config/settings.yml → worker_pool: max_workers 8 / queue_limit 16
+  （全站 -w 2：同時生 16 張、容量 48、~24 人/分可持續）
+Railway Hobby ($5) · Supabase Nano→Pro · gunicorn -w 2 --threads 8
 ```
-**動作**：無。確認 **Sentry 告警**、**Replicate spend 上限**已設好即可。
-
-### 階段 1 — 小社團 / 正式上線 ⭐
-**規模**：偶爾幾十人在幾分鐘內湧入。
-**訊號**：開始有人收到「忙碌」訊息；Railway 生成活動偶爾滿載。
-**動作**（都只是改設定，免改 code）：
-```
-# Railway → Variables
-IMAGE_WORKERS=8         # 全站同時生 16 張
-IMAGE_QUEUE_LIMIT=16    # 全站容量 48（第 49 人起忙碌）
-```
+**動作**：
+- 生成池大小改 **`config/settings.yml` 的 `worker_pool`**（跑 `python3 -m src.core.settings` 驗證後 commit → 自動部署）。臨時調整可用 Railway 變數 `IMAGE_WORKERS` / `IMAGE_QUEUE_LIMIT` 覆寫，免改檔。
 - **升 Supabase Pro**（上線前置；Nano 閒置就吃 46% RAM，Pro 更穩且有備份）。
-- 這是壓測建議的**上線甜蜜點**：~24 人/分可持續、DB 與費用都安全。
+- 確認 **Sentry 告警**、**Replicate spend 上限**已設好。
 **成本**：Railway 用量微增（生成是 I/O-bound，幾乎不多吃 CPU）；Supabase Pro ~$25/月。
 
 ### 階段 2 — 成長期 / 多社團同時活躍
 **規模**：持續性負載，常態幾十人/分，尖峰上百人湧入。
-**訊號**：`IMAGE_WORKERS=8` 也常常滿；排隊等待變長；CPU 在收訊尖峰接近 2 vCPU。
+**訊號**：`worker_pool` 8/16 也常常滿；排隊等待變長；CPU 在收訊尖峰接近 2 vCPU。
 **動作**：
 1. **水平擴展 web/worker**：Railway 加 **replicas**（每個 replica 各有自己的 pool → 容量倍增）。
    - 注意：目前 pool 是 **in-process**，各 replica 獨立、不共享佇列。容量會加成，但無法「全域公平排隊」。
 2. **提高 DB 池**：若加 replica/worker，同步調 `database.py` 的 `pool_size` / `max_overflow`，並確認 Supabase 連線數仍 < 上限（Supavisor 有保護，但 direct 連線要留意）。
 3. **升 Supabase compute**（Nano → Small/Medium）：更多連線、更快查詢。
-4. 適度再調 `IMAGE_WORKERS`（但別超過 DB 池能負荷的頭尾借還量；壓測顯示 16/32 已接近 DB 池 30 的舒適上限）。
+4. 適度再調 `worker_pool.max_workers`（但別超過 DB 池能負荷的頭尾借還量；壓測顯示 16/32 已接近 DB 池 30 的舒適上限）。
 **成本**：replicas 與 compute 按用量線性上升；開始需要認真看 Railway/Supabase 帳單。
 
 ### 階段 3 — 規模化 / 大量並發（架構升級）
@@ -86,8 +78,8 @@ IMAGE_QUEUE_LIMIT=16    # 全站容量 48（第 49 人起忙碌）
 
 | 旋鈕 | 在哪 | 控制什麼 | 何時調 |
 |---|---|---|---|
-| `IMAGE_WORKERS` | Railway env（`task_executor.py` 讀取） | 同時生幾張（per process） | 階段 1、2 |
-| `IMAGE_QUEUE_LIMIT` | Railway env | 可排隊幾個，超過即「忙碌」 | 階段 1、2 |
+| `worker_pool.max_workers` | `config/settings.yml`（env `IMAGE_WORKERS` 可覆寫） | 同時生幾張（per process） | 階段 1、2 |
+| `worker_pool.queue_limit` | `config/settings.yml`（env `IMAGE_QUEUE_LIMIT` 可覆寫） | 可排隊幾個，超過即「忙碌」 | 階段 1、2 |
 | `-w` / `--threads` | `Procfile` | HTTP 併發 & 程序數 | 階段 2 |
 | `pool_size` / `max_overflow` | `src/models/database.py` | 每 process 的 DB 連線 | 加 worker/replica 時同步 |
 | Replicas | Railway → Settings | 水平擴展（容量加成） | 階段 2 |
@@ -114,7 +106,7 @@ IMAGE_QUEUE_LIMIT=16    # 全站容量 48（第 49 人起忙碌）
 
 ## 四、上線前最低配置（Checklist）
 
-- [ ] `IMAGE_WORKERS=8` / `IMAGE_QUEUE_LIMIT=16`（階段 1 甜蜜點）
+- [ ] `config/settings.yml` 的 `worker_pool` = 8 / 16（出廠預設，階段 1 甜蜜點）
 - [ ] **Supabase Pro**（穩定性 + 備份）
 - [ ] **Replicate spend 上限**（費用護欄，避免濫用燒錢）
 - [ ] Sentry 告警、UptimeRobot（或等效）健康監測
