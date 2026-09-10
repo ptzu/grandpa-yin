@@ -15,7 +15,7 @@ LINE Platform ──► Railway (Flask /webhook, gunicorn -w 2 --threads 8)
                      │
                      ├─► Supabase PostgreSQL（會員、點數、狀態、usage_logs）
                      ├─► Supabase Storage（P圖大神的暫存圖）
-                     ├─► Replicate API（彩色化 / P圖大神，背景執行緒池 4 workers + 8 queue）
+                     ├─► Replicate API（彩色化 / P圖大神，背景執行緒池 8 workers + 16 queue，config/settings.yml）
                      ├─► LINE Messaging API（reply / push / loading animation）
                      └─► Sentry（錯誤追蹤）
 ```
@@ -86,7 +86,7 @@ Railway 改 Variables **不會**自動重啟舊容器的 process 內快取，改
 | `LINE_BASIC_ID` | | Bot 的 LINE ID（含 `@`）。禮物卡片裡「點這裡收下」按鈕靠它——長輩點一下就開啟 bot 且兌換訊息已填好。沒設的話卡片改為附卡號與文字說明，長輩得自己輸入「兌換」|
 | `SENTRY_DSN` | | 留空則不啟用 Sentry |
 | `SENTRY_ENVIRONMENT` | | `production` / `staging` |
-| `IMAGE_WORKERS` / `IMAGE_QUEUE_LIMIT` | | 圖片處理併發（預設 4 / 8） |
+| `IMAGE_WORKERS` / `IMAGE_QUEUE_LIMIT` | | 圖片生成池的臨時覆寫；正式設定在 `config/settings.yml` 的 `worker_pool`（預設 8 / 16） |
 
 > `.env` 不可 commit（已在 `.gitignore`）；各環境變數在 Railway 各自設定。
 

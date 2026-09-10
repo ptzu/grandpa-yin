@@ -11,7 +11,7 @@
 #   1. 到 https://replicate.com/explore 找模型，複製它的 ID（作者/模型名）
 #   2. 打開該模型的 API 頁，看它的輸入欄位叫什麼名字
 #   3. 把 model 換掉，並照著調整下面的 input 對應
-#   4. 本地實測一次再推（見 docs/TEST_ENVIRONMENT.md）
+#   4. 本地實測一次再推（見 docs/TEST.md）
 #
 # 光換 model 是不夠的：不同模型的欄位名稱不一樣。例如 nano-banana 的圖片
 # 欄位叫 image_input 且吃「陣列」，restore-image 叫 input_image 吃「單張」。
@@ -128,6 +128,23 @@ members:
   # 新用戶加好友時贈送的點數。設 0 表示不送。
   # 同一個帳號只會發一次（解除封鎖再加回來不會重複領）。
   welcome_points: 100
+
+# ══════════════════════════════════════════════════════════════
+# 圖片生成的背景執行緒池（有界，滿載時回「忙碌」保護下游）
+# ══════════════════════════════════════════════════════════════
+#
+# 這是社團湧入時「第一個會滿」的地方，不是 /health 的吞吐（見 docs/TEST.md）。
+# 容量 = max_workers + queue_limit：超過的人會收到「忙碌，請稍後」而非崩潰。
+# 注意 gunicorn -w 2 有兩個獨立池，所以「全站容量 ≈ 這裡的 2 倍」。
+#
+#   max_workers  同時最多生幾張（per process）。生成是等 Replicate 的 I/O，
+#                不太吃 CPU，但每張都是一筆 Replicate 帳單——別無腦開大。
+#   queue_limit  可再排隊幾個。開太大只是讓排尾等更久，不會更快。
+#
+# 環境變數 IMAGE_WORKERS / IMAGE_QUEUE_LIMIT 可臨時覆寫（免改檔重部署）。
+worker_pool:
+  max_workers: 8
+  queue_limit: 16
 
 # ══════════════════════════════════════════════════════════════
 # 儲值（點數包）
