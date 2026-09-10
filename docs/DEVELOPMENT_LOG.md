@@ -1,7 +1,7 @@
 # 開發日誌
 
 > 依時間軸記錄重要架構決策與里程碑。細節以 git 歷史為準，此處記「為什麼」。
-> 相關文件：[部署](./DEPLOYMENT.md)、[測試環境](./TEST_ENVIRONMENT.md)、[系統健檢](./HEALTH_CHECK.md)
+> 相關文件：[部署](./DEPLOYMENT.md)、[測試](./TEST.md)、[系統健檢](./HEALTH_CHECK.md)
 
 ---
 
@@ -291,7 +291,7 @@ colorize / edit 是同一套 `accept_handoff` 機制，沒有新造路徑。
 
 - `test/setup_test_db.py` + `start_local_server.py`：本機 Postgres 一鍵建表、自動起 Flask + ngrok + 設定 LINE webhook。
 - webhook 加上簽章驗證保護。
-- 產出[測試環境文件](./TEST_ENVIRONMENT.md)。
+- 產出[測試文件](./TEST.md)。
 
 ---
 

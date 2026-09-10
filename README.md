@@ -9,7 +9,8 @@
 | 文件 | 內容 |
 |---|---|
 | [部署](docs/DEPLOYMENT.md) | 上線步驟、環境變數、Alembic 自動 migration、營運與事故處理 |
-| [測試環境](docs/TEST_ENVIRONMENT.md) | 本地 standalone / 整合測試、環境變數、本地資料庫與伺服器 |
+| [擴展與運營](docs/OPERATION.md) | 分使用者量級的擴展策略、設定旋鈕、升級決策訊號 |
+| [測試](docs/TEST.md) | 功能/整合測試環境（本地 standalone、環境變數、隔離）＋ 壓力測試（如何執行、實測結果與極限地圖） |
 | [開發日誌](docs/DEVELOPMENT_LOG.md) | 重要架構決策與里程碑編年 |
 | [系統健檢](docs/HEALTH_CHECK.md) | 架構健康度、修復進度、待補強清單 |
 
@@ -39,7 +40,7 @@
 
 ## 開啟測試環境
 
-完整說明見 [測試環境文件](docs/TEST_ENVIRONMENT.md)。快速版（本地開發，零雲端資料庫）：
+完整說明見 [測試文件](docs/TEST.md)。快速版（本地開發，零雲端資料庫）：
 
 ### 1. 安裝依賴
 
