@@ -1,7 +1,7 @@
 # 部署文件（上線指南）
 
 > 適用架構：Railway（Flask + gunicorn）＋ Supabase（PostgreSQL + Storage）＋ LINE Messaging API ＋ Replicate ＋ Sentry
-> 相關文件：[測試環境](./TEST_ENVIRONMENT.md)、[系統健檢](./HEALTH_CHECK.md)、[開發日誌](./DEVELOPMENT_LOG.md)
+> 相關文件：[測試](./TEST.md)、[擴展與運營](./OPERATION.md)、[系統健檢](./HEALTH_CHECK.md)、[開發日誌](./DEVELOPMENT_LOG.md)
 
 ---
 
