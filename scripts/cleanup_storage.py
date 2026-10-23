@@ -161,7 +161,7 @@ def cleanup_storage(hours=24, apply_changes=False, result_days=DEFAULT_RESULT_DA
 
     storage = StorageService()
     if not storage.is_configured():
-        print("❌ 錯誤：未設定 SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY")
+        print("❌ 錯誤：未設定 SUPABASE_URL / SUPABASE_SECRET_KEY")
         return False
 
     if not os.getenv("DATABASE_URL"):

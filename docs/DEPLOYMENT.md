@@ -70,7 +70,7 @@ Railway 改 Variables **不會**自動重啟舊容器的 process 內快取，改
 | `DATABASE_URL` | ✅ | Postgres 連線字串（見第五章） |
 | `DEPLOY_MODE` | | `platform`（**未設定時的預設**）/ `standalone`。獨立環境**必須明寫** `standalone` |
 | `SUPABASE_URL` | ⭕ | Supabase 專案 URL（圖片 Storage）。技術上可省略，但**正式環境視為必填**——未設定時圖片會以 base64 塞進 `bot_sessions.state_metadata`（JSONB），大照片會讓該欄位膨脹到數 MB，且每則訊息查狀態都要撈出來。另「照片動起來」的縮圖、以及成品保留 30 天都需要它（未設定時成品只剩模型端約一小時的暫存網址，用戶隔天回頭就是破圖）|
-| `SUPABASE_SERVICE_ROLE_KEY` | | **service role / secret** key（非 anon / publishable key） |
+| `SUPABASE_SECRET_KEY` | | **secret** key（`sb_secret_…`，非 publishable / anon key）。舊名 `SUPABASE_SERVICE_ROLE_KEY` 仍可讀，兩個都設時以新名為準 |
 | `SUPABASE_STORAGE_BUCKET` | | 預設 `linebot-temp-images` |
 | `WELCOME_POINTS` | | **覆寫** `config/settings.yml` 的新會員贈點 |
 | `COLORIZE_COST` / `EDIT_COST` | | **覆寫** `config/settings.yml` 的點數（見下方） |
@@ -174,7 +174,7 @@ Private 就夠：圖片只由後端以 service role 讀寫，**結果圖的 URL 
 
 ### 5.4 取得 Storage 用的 key
 
-**Settings → API Keys**，取 **service_role**（新專案顯示為 **secret**，`sb_secret_...`）那一把，填入 `SUPABASE_SERVICE_ROLE_KEY`。
+**Settings → API Keys → Secret keys**，取 `sb_secret_...` 那一把，填入 `SUPABASE_SECRET_KEY`。（舊專案若只有 legacy `service_role` JWT，填它也可以。）
 
 > ⚠️ 別拿成 anon / publishable 那把——它受 RLS 限制，Storage 讀寫會失敗。service role key **等同資料庫的完整權限**，只能放在後端環境變數，絕不可進前端或 commit。
 
@@ -185,7 +185,7 @@ Private 就夠：圖片只由後端以 service role 讀寫，**結果圖的 URL 
 ```
 DEPLOY_MODE=standalone
 SUPABASE_URL=https://[PROJECT-REF].supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<5.4 取得的 key>
+SUPABASE_SECRET_KEY=<5.4 取得的 key>
 SUPABASE_STORAGE_BUCKET=linebot-temp-images
 ```
 
@@ -460,7 +460,7 @@ bucket 裡有兩種東西，壽命差一個數量級：
 |---|---|
 | Start Command | `python scripts/cleanup_user_states.py 24; python scripts/cleanup_storage.py --apply` |
 | Cron Schedule | `0 18 * * *`（UTC，約台灣時間凌晨 2 點） |
-| 環境變數 | 與 web service 相同（至少要 `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`） |
+| 環境變數 | 與 web service 相同（至少要 `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SECRET_KEY`） |
 
 兩支腳本用 `;` 而不是 `&&` 串：狀態清理失敗不該連帶讓 storage 停止回收，那是這個 cron 存在的主要理由。順序不影響正確性（storage 的判定同時檢查「夠舊」和「沒被引用」），但先清狀態能讓當天多回收一些剛失去引用的圖。
 
