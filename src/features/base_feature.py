@@ -231,7 +231,7 @@ class BaseFeature(ABC):
                 # 流程炸掉，退回 base64 讓用戶還能繼續。仍記 WARNING 方便排查。
                 logger.exception("Supabase 上傳暫存圖失敗，改用 base64 暫存於 state（請檢查 Supabase 設定／連線）")
         else:
-            logger.warning("Supabase Storage 未設定，退回以 base64 暫存於 state（建議設定 SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY）")
+            logger.warning("Supabase Storage 未設定，退回以 base64 暫存於 state（建議設定 SUPABASE_URL / SUPABASE_SECRET_KEY）")
         return {"image_data": base64.b64encode(image_bytes).decode('utf-8')}
 
     @staticmethod

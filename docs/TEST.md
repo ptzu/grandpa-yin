@@ -94,7 +94,7 @@ WELCOME_POINTS=50
 DEPLOY_MODE=platform
 DATABASE_URL=postgresql://postgres:[測試專案密碼]@db.[測試PROJECT-ID].supabase.co:5432/postgres
 SUPABASE_URL=https://[測試PROJECT-ID].supabase.co
-SUPABASE_SERVICE_ROLE_KEY=測試專案的service_role_key
+SUPABASE_SECRET_KEY=測試專案的secret_key
 SUPABASE_STORAGE_BUCKET=linebot-temp-images
 SENTRY_ENVIRONMENT=staging
 ```

@@ -11,7 +11,20 @@ LIST_PAGE_SIZE = 100
 DELETE_BATCH_SIZE = 100
 
 # .env.example 的佔位值片段；出現這些代表設定沒填完（見 is_configured）
-_PLACEHOLDER_MARKERS = ("your-project", "your_service_role_key")
+# "your_service_role_key" stays for .env files copied from the old example.
+_PLACEHOLDER_MARKERS = ("your-project", "your_secret_key", "your_service_role_key")
+
+# New name first. The legacy name keeps deployments whose Railway variables
+# have not been renamed yet working; drop it once no environment uses it.
+_KEY_ENV_VARS = ("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY")
+
+
+def _read_secret_key() -> str:
+    for name in _KEY_ENV_VARS:
+        value = os.getenv(name)
+        if value:
+            return value
+    return ""
 
 
 class StorageService:
@@ -26,13 +39,14 @@ class StorageService:
 
     需要的環境變數：
       - SUPABASE_URL：專案 URL（https://xxx.supabase.co）
-      - SUPABASE_SERVICE_ROLE_KEY：service role key（繞過 RLS，僅供後端使用）
+      - SUPABASE_SECRET_KEY：secret key（sb_secret_…，繞過 RLS，僅供後端使用）。
+        舊名 SUPABASE_SERVICE_ROLE_KEY 仍可讀，兩個都設時以新名為準
       - SUPABASE_STORAGE_BUCKET：bucket 名稱（預設 linebot-temp-images）
     """
 
     def __init__(self):
         self.base_url = os.getenv("SUPABASE_URL", "").rstrip("/")
-        self.api_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+        self.api_key = _read_secret_key()
         self.bucket = os.getenv("SUPABASE_STORAGE_BUCKET", "linebot-temp-images")
 
     def is_configured(self) -> bool:
